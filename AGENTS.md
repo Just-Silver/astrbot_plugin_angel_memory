@@ -136,6 +136,7 @@ LLM响应 → DeepMind.async_analyze_and_update_memory()
 ### 检索层
 - **向量模式**：语义检索（向量相似度 + 可选rerank_provider重排）+ 链式召回（实体优先+类型分组）
 - **Simple模式**：FTS5（jieba 预分词）检索 + rank归一融合 + 阈值过滤
+- **重排契约**：上游返回 `RerankResult`（`relevance_score`），接入见 [`docs/重排接入与分数契约.md`](docs/重排接入与分数契约.md)
 
 ### 嵌入层
 - **本地模型**：SentenceTransformers（BAAI/bge-small-zh-v1.5）

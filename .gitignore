@@ -186,3 +186,6 @@ webui/dist/
 
 # VS Code 工作区文件由 IDE 生成，各人本地不同
 *.code-workspace
+
+# brainstorming 可视化会话缓存
+.superpowers/

@@ -246,21 +246,15 @@ class NotesAPI:
         if note_short_id < 0:
             return jsonify({"error": "note_short_id 必填，且必须是不小于 0 的整数"}), 400
         try:
-            offset = int(data.get("offset") or data.get("start_line") or 1)
+            offset = int(data.get("offset") or 1)
         except (TypeError, ValueError):
             offset = 1
         offset = max(1, offset)
-        if "limit" in data:
-            try:
-                limit = int(data.get("limit") or 200)
-            except (TypeError, ValueError):
-                limit = 200
-        else:
-            try:
-                legacy_end = int(data.get("end_line") or offset + 199)
-            except (TypeError, ValueError):
-                legacy_end = offset + 199
-            limit = max(1, legacy_end - offset + 1)
+        try:
+            limit = int(data.get("limit") or 200)
+        except (TypeError, ValueError):
+            limit = 200
+        limit = max(1, limit)
 
         conn = self._get_central_conn()
         if not conn:
@@ -500,11 +494,10 @@ class NotesAPI:
         if note_service is None:
             return jsonify({"error": "笔记服务不可用"}), 503
 
-        # 用户在预览弹窗里改标题时才会带上 original_title；
         # 标题没变就一个字节都不动，避免「确认即格式化」。
         original_title = str(data.get("original_title") or "").strip()
         if not original_title:
-            original_title = extract_h1(content) or Path(filename).stem
+            return jsonify({"error": "original_title 必填"}), 400
         body = content if title == original_title else rewrite_title(content, title)
 
         target = self._allocate_upload_path(title, extension)

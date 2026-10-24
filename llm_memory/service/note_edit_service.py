@@ -204,9 +204,7 @@ class NoteEditService:
 
 
 __all__ = [
-    "EditError",
     "NoteEditError",
     "NoteEditService",
     "atomic_write_text",
-    "extract_h1",
 ]

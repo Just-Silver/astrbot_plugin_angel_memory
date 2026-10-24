@@ -267,7 +267,7 @@ class TestUploadConfirm:
         status, body = await post_json(
             workspace["app"],
             "/notes/upload/confirm",
-            {"filename": "笔记.md", "title": "新标题", "content": "# 旧标题\n正文\n"},
+            {"filename": "笔记.md", "title": "新标题", "original_title": "旧标题", "content": "# 旧标题\n正文\n"},
         )
 
         assert status == 200
@@ -284,7 +284,7 @@ class TestUploadConfirm:
         status, body = await post_json(
             workspace["app"],
             "/notes/upload/confirm",
-            {"filename": "笔记.md", "title": "已有一级标题", "content": content},
+            {"filename": "笔记.md", "title": "已有一级标题", "original_title": "已有一级标题", "content": content},
         )
 
         assert status == 200
@@ -301,7 +301,7 @@ class TestUploadConfirm:
         status, body = await post_json(
             workspace["app"],
             "/notes/upload/confirm",
-            {"filename": "接口文档.md", "title": "接口文档", "content": "# 接口文档\n新版本\n"},
+            {"filename": "接口文档.md", "title": "接口文档", "original_title": "接口文档", "content": "# 接口文档\n新版本\n"},
         )
 
         assert status == 200

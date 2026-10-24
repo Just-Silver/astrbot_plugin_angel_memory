@@ -41,7 +41,7 @@
           :data="items"
           :loading="loading"
           :pagination="pagination"
-          :row-key="(row: any) => row.source_id || `short:${row.note_short_id}`"
+          :row-key="(row: any) => row.source_id"
           :checked-row-keys="checkedRowKeys"
           @update:checked-row-keys="onCheckedChange"
           @update:page="onPageChange"
@@ -89,7 +89,7 @@
           </n-button>
           <span v-else class="muted">已显示全部</span>
           <n-button
-            v-if="preview?.source_id"
+            v-if="preview"
             type="error"
             secondary
             size="small"
@@ -281,7 +281,7 @@ function sanitizeTitle(title: string): string {
 
 const selectedRows = computed(() =>
   items.value.filter(item =>
-    checkedRowKeys.value.includes(item.source_id || `short:${item.note_short_id}`),
+    checkedRowKeys.value.includes(item.source_id),
   ),
 )
 
@@ -348,7 +348,6 @@ const columns: DataTableColumns<any> = [
                 size: 'tiny',
                 quaternary: true,
                 type: 'error',
-                disabled: !row.source_id,
                 onClick: () => askDelete(row),
               },
               { icon: () => h(Icon, { icon: 'lucide:trash-2' }) },
@@ -404,25 +403,19 @@ async function showPreview(row: any) {
   previewDialog.value = true
   previewLoading.value = true
   try {
-    if (row.note_short_id >= 0) {
-      const data: any = await apiPost('notes/recall', {
-        note_short_id: row.note_short_id,
-        offset: 1,
-        limit: 400,
-      })
-      if (data.error) {
-        message.error(data.error)
-      } else {
-        preview.value = {
-          ...row,
-          ...data,
-          has_more: data.actual_end_line < data.total_lines,
-        }
-      }
+    const data: any = await apiPost('notes/recall', {
+      note_short_id: row.note_short_id,
+      offset: 1,
+      limit: 400,
+    })
+    if (data.error) {
+      message.error(data.error)
     } else {
-      const data: any = await apiGet('notes/file-content', { path: row.source_file_path })
-      if (data.error) message.error(data.error)
-      else preview.value = { ...row, content: data.content || '', has_more: false }
+      preview.value = {
+        ...row,
+        ...data,
+        has_more: data.actual_end_line < data.total_lines,
+      }
     }
   } catch (e: any) {
     message.error(e?.message || '读取失败')
@@ -460,21 +453,16 @@ async function loadMorePreview() {
 // ---------- 删除 ----------
 
 function askDelete(row: any) {
-  if (!row?.source_id) {
-    message.warning('这条记录缺少索引主键，无法从界面删除')
-    return
-  }
   deleteTargets.value = [row]
   deleteDialog.value = true
 }
 
 function askDeleteSelected() {
-  const targets = selectedRows.value.filter(item => item.source_id)
-  if (!targets.length) {
+  if (!selectedRows.value.length) {
     message.warning('请先勾选要删除的笔记')
     return
   }
-  deleteTargets.value = targets
+  deleteTargets.value = selectedRows.value
   deleteDialog.value = true
 }
 
@@ -482,7 +470,7 @@ async function doDelete() {
   if (deleting.value) return
   deleting.value = true
   try {
-    const sourceIds = deleteTargets.value.map(item => item.source_id).filter(Boolean)
+    const sourceIds = deleteTargets.value.map(item => item.source_id)
     const data: any = await apiPost('notes/delete', { source_ids: sourceIds })
     if (data?.error) {
       message.error(data.error)

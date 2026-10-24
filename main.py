@@ -123,7 +123,7 @@ class AngelMemoryPlugin(Star):
             ]
             note_config = self.plugin_context.get_config("note_assistant", {}) or {}
             for tool_name, flag_key, factory in NOTE_TOOL_SPECS:
-                if note_config.get(flag_key, True):
+                if note_config[flag_key]:
                     llm_tools.append(factory())
 
             self._llm_tools = llm_tools
@@ -166,7 +166,7 @@ class AngelMemoryPlugin(Star):
             return
         note_config = self.plugin_context.get_config("note_assistant", {}) or {}
         for tool_name, flag_key, factory in NOTE_TOOL_SPECS:
-            self._sync_note_tool(tool_name, bool(note_config.get(flag_key, True)), factory)
+            self._sync_note_tool(tool_name, bool(note_config[flag_key]), factory)
 
     def _sync_note_tool(self, tool_name: str, enabled: bool, factory) -> None:
         registered = any(t.name == tool_name for t in self._llm_tools)

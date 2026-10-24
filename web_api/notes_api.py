@@ -4,13 +4,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import math
 import os
+import re
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from quart import jsonify, request
+
+from ..llm_memory.service.note_edit_service import atomic_write_text, extract_h1
+from ..llm_memory.utils.text_edit import is_pure_crlf
 
 try:
     from astrbot.api import logger
@@ -231,13 +238,28 @@ class NotesAPI:
 
     async def recall_note(self):
         """模拟 angel_note_read"""
-        data = await request.get_json()
-        note_short_id = int(data.get("note_short_id", -1))
-        offset = int(data.get("offset", data.get("start_line", 1)))
+        data = await request.get_json(silent=True) or {}
+        try:
+            note_short_id = int(data.get("note_short_id", -1))
+        except (TypeError, ValueError):
+            note_short_id = -1
+        if note_short_id < 0:
+            return jsonify({"error": "note_short_id 必填，且必须是不小于 0 的整数"}), 400
+        try:
+            offset = int(data.get("offset") or data.get("start_line") or 1)
+        except (TypeError, ValueError):
+            offset = 1
+        offset = max(1, offset)
         if "limit" in data:
-            limit = int(data.get("limit", 200))
+            try:
+                limit = int(data.get("limit") or 200)
+            except (TypeError, ValueError):
+                limit = 200
         else:
-            legacy_end = int(data.get("end_line", offset + 199))
+            try:
+                legacy_end = int(data.get("end_line") or offset + 199)
+            except (TypeError, ValueError):
+                legacy_end = offset + 199
             limit = max(1, legacy_end - offset + 1)
 
         conn = self._get_central_conn()
@@ -287,6 +309,240 @@ class NotesAPI:
             return jsonify({"error": str(e)}), 500
         finally:
             conn.close()
+
+    # ---------- 删除 ----------
+
+    def _resolve_raw_path(self, rel_path: str) -> Path | None:
+        """把相对路径解析到 raw/ 内；越界返回 None。"""
+        raw_dir = self._get_raw_dir()
+        target = (raw_dir / str(rel_path).replace("/", os.sep)).resolve()
+        raw_root = raw_dir.resolve()
+        if raw_root not in target.parents:
+            return None
+        return target
+
+    def _delete_notes_sync(self, source_ids: list[str]) -> tuple[list[str], list[dict[str, str]]]:
+        deleted: list[str] = []
+        failed: list[dict[str, str]] = []
+        note_service = self.plugin_context.get_component("note_service")
+        if note_service is None:
+            return [], [{"source_id": sid, "reason": "笔记服务不可用"} for sid in source_ids]
+
+        # 先把记录读出来并断开连接，避免删除文件/重建索引期间占着同一个库的读游标
+        records: dict[str, dict[str, str]] = {}
+        conn = self._get_central_conn()
+        if not conn:
+            return [], [{"source_id": sid, "reason": "数据库不可用"} for sid in source_ids]
+        try:
+            for source_id in source_ids:
+                row = conn.execute(
+                    "SELECT file_id, source_file_path FROM note_index_records WHERE source_id = ? LIMIT 1",
+                    (source_id,),
+                ).fetchone()
+                if row:
+                    records[source_id] = {
+                        "file_id": str(row["file_id"] or "").strip(),
+                        "source_file_path": str(row["source_file_path"] or ""),
+                    }
+        finally:
+            conn.close()
+
+        for source_id in source_ids:
+            record = records.get(source_id)
+            if not record:
+                failed.append({"source_id": source_id, "reason": "索引中不存在该笔记"})
+                continue
+            try:
+                rel_path = record["source_file_path"].replace("\\", "/").strip().lstrip("/")
+                target = self._resolve_raw_path(rel_path)
+                if target is None:
+                    failed.append({"source_id": source_id, "reason": "路径越界"})
+                    continue
+
+                # 先删文件，再清派生索引：最坏情况只留下可被文件监控兜底清理的孤儿索引
+                if target.exists():
+                    target.unlink()
+                note_service.remove_file_data_by_file_id(record["file_id"])
+                deleted.append(source_id)
+            except Exception as exc:
+                logger.warning(f"删除笔记失败 source_id={source_id}: {exc}")
+                failed.append({"source_id": source_id, "reason": str(exc)})
+        return deleted, failed
+
+    async def delete_notes(self):
+        """删除一篇或多篇笔记：磁盘文件 + 元数据 + 切片 + 检索索引。"""
+        data = await request.get_json(silent=True) or {}
+        raw_ids = data.get("source_ids")
+        if not isinstance(raw_ids, list) or not raw_ids:
+            return jsonify({"error": "source_ids 不能为空"}), 400
+
+        source_ids = [str(item or "").strip() for item in raw_ids if str(item or "").strip()]
+        if not source_ids:
+            return jsonify({"error": "source_ids 不能为空"}), 400
+        if len(source_ids) > 200:
+            return jsonify({"error": "单次最多删除 200 篇"}), 400
+
+        deleted, failed = await asyncio.to_thread(self._delete_notes_sync, source_ids)
+        if deleted:
+            logger.info(f"[笔记删除] 删除完成 count={len(deleted)} 失败={len(failed)}")
+        return jsonify({"deleted": deleted, "failed": failed})
+
+    # ---------- 上传 ----------
+
+    MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+    UPLOAD_SUBDIR = "upload"
+
+    @staticmethod
+    def _decode_bytes(raw: bytes) -> tuple[str | None, str]:
+        for encoding in ("utf-8-sig", "gbk"):
+            try:
+                return raw.decode(encoding), encoding
+            except UnicodeDecodeError:
+                continue
+        return None, ""
+
+    @staticmethod
+    def _sanitize_title(title: str) -> str:
+        safe = re.sub(r'[<>:"/\\|?*\n\r\t]', "_", str(title or "").strip())
+        safe = re.sub(r"\s+", " ", safe).strip(". ")
+        return safe[:80] or "untitled"
+
+    @staticmethod
+    def _apply_title(content: str, title: str) -> str:
+        """把正文第一处 "# " 行改成新标题；没有 H1 则在文件头补一行。"""
+        lines = content.split("\n")
+        for index, line in enumerate(lines):
+            if line.lstrip().startswith("# "):
+                carriage = "\r" if line.endswith("\r") else ""
+                lines[index] = f"# {title}{carriage}"
+                return "\n".join(lines)
+
+        carriage = "\r" if is_pure_crlf(content) else ""
+        return f"# {title}{carriage}\n\n{content}"
+
+    def _allocate_upload_path(self, title: str, extension: str) -> Path:
+        upload_dir = self._get_raw_dir() / self.UPLOAD_SUBDIR
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        stem = self._sanitize_title(title)
+        candidate = upload_dir / f"{stem}{extension}"
+        if not candidate.exists():
+            return candidate
+
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        candidate = upload_dir / f"{stem}_{stamp}{extension}"
+        attempt = 1
+        while candidate.exists():
+            candidate = upload_dir / f"{stem}_{stamp}_{attempt}{extension}"
+            attempt += 1
+        return candidate
+
+    async def upload_preview(self):
+        """接收文件内容并解析标题，不写盘。"""
+        data = await request.get_json(silent=True) or {}
+        filename = Path(str(data.get("filename") or "").strip()).name
+        encoded = str(data.get("base64") or "").strip()
+        if not filename or not encoded:
+            return jsonify({"error": "filename 与 base64 均为必填"}), 400
+
+        extension = Path(filename).suffix.lower()
+        if extension not in {".md", ".txt"}:
+            return jsonify({"error": "只支持 .md 和 .txt 文件。"}), 400
+
+        try:
+            raw_bytes = base64.b64decode(encoded, validate=True)
+        except Exception:
+            return jsonify({"error": "文件内容解码失败"}), 400
+
+        if len(raw_bytes) > self.MAX_UPLOAD_BYTES:
+            limit_mb = self.MAX_UPLOAD_BYTES // (1024 * 1024)
+            return jsonify({"error": f"文件超过 {limit_mb} MB 上限。"}), 400
+
+        text, encoding = self._decode_bytes(raw_bytes)
+        if text is None:
+            return jsonify({"error": "无法识别文件编码，请另存为 UTF-8。"}), 400
+        if not text.strip():
+            return jsonify({"error": "文件内容为空。"}), 400
+
+        heading = extract_h1(text)
+        title = heading or Path(filename).stem
+        return jsonify(
+            {
+                "preview": {
+                    "filename": filename,
+                    "extension": extension,
+                    "size_bytes": len(raw_bytes),
+                    "encoding": encoding,
+                    "title": title,
+                    "title_source": "h1" if heading else "filename",
+                    "content": text,
+                }
+            }
+        )
+
+    async def upload_confirm(self):
+        """把预览后确认的正文写入 raw/upload/ 并建立索引。"""
+        data = await request.get_json(silent=True) or {}
+        filename = Path(str(data.get("filename") or "").strip()).name
+        title = str(data.get("title") or "").strip()
+        content = str(data.get("content") or "")
+        if not filename:
+            return jsonify({"error": "filename 必填"}), 400
+        if not title:
+            title = Path(filename).stem
+
+        extension = Path(filename).suffix.lower()
+        if extension not in {".md", ".txt"}:
+            return jsonify({"error": "只支持 .md 和 .txt 文件。"}), 400
+        if not content.strip():
+            return jsonify({"error": "文件内容为空。"}), 400
+        if len(content.encode("utf-8")) > self.MAX_UPLOAD_BYTES:
+            limit_mb = self.MAX_UPLOAD_BYTES // (1024 * 1024)
+            return jsonify({"error": f"文件超过 {limit_mb} MB 上限。"}), 400
+
+        note_service = self.plugin_context.get_component("note_service")
+        if note_service is None:
+            return jsonify({"error": "笔记服务不可用"}), 503
+
+        body = content if extract_h1(content) == title else self._apply_title(content, title)
+        target = self._allocate_upload_path(title, extension)
+        raw_root = self._get_raw_dir().resolve()
+        relative_path = target.resolve().relative_to(raw_root).as_posix()
+
+        try:
+            await asyncio.to_thread(atomic_write_text, target, body)
+            chunks, _timings = await asyncio.to_thread(
+                note_service.parse_and_store_file_sync, str(target), relative_path
+            )
+        except Exception as exc:
+            logger.error(f"[笔记上传] 写入失败 path={relative_path}: {exc}", exc_info=True)
+            return jsonify({"error": f"写入失败：{exc}"}), 500
+
+        note_short_id = -1
+        conn = self._get_central_conn()
+        if conn:
+            try:
+                row = conn.execute(
+                    "SELECT note_short_id FROM note_index_records WHERE source_file_path = ? LIMIT 1",
+                    (relative_path,),
+                ).fetchone()
+                if row and row["note_short_id"] is not None:
+                    note_short_id = int(row["note_short_id"])
+            finally:
+                conn.close()
+
+        logger.info(
+            f"[笔记上传] 完成 path={relative_path} encoding_chars={len(body)} 切片={chunks}"
+        )
+        return jsonify(
+            {
+                "saved": {
+                    "relative_path": relative_path,
+                    "note_short_id": note_short_id,
+                    "title": extract_h1(body) or title,
+                    "chunks": int(chunks),
+                }
+            }
+        )
 
     async def list_note_files(self):
         """列出笔记文件"""

@@ -26,9 +26,18 @@ except ImportError:
 from .core.plugin_context import PluginContextFactory
 from .core.plugin_manager import PluginManager
 from .tools.angel_note_create import NoteCreateTool
+from .tools.angel_note_edit import NoteEditTool
 from .tools.angel_note_read import NoteRecallTool
+from .tools.angel_note_write import NoteWriteTool
 from .tools.angel_recall import CoreMemoryRecallTool
 from .tools.angel_remember import CoreMemoryRememberTool
+
+# (工具名, 配置开关, 工厂)；开关默认值统一为 True
+NOTE_TOOL_SPECS = (
+    ("angel_note_create", "enable_create", NoteCreateTool),
+    ("angel_note_edit", "enable_edit", NoteEditTool),
+    ("angel_note_write", "enable_edit", NoteWriteTool),
+)
 
 
 def configure_logging_behavior():
@@ -113,8 +122,9 @@ class AngelMemoryPlugin(Star):
                 NoteRecallTool(),
             ]
             note_config = self.plugin_context.get_config("note_assistant", {}) or {}
-            if note_config.get("enable_create", True):
-                llm_tools.append(NoteCreateTool())
+            for tool_name, flag_key, factory in NOTE_TOOL_SPECS:
+                if note_config.get(flag_key, True):
+                    llm_tools.append(factory())
 
             self._llm_tools = llm_tools
             self.context.add_llm_tools(*llm_tools)
@@ -147,28 +157,31 @@ class AngelMemoryPlugin(Star):
 
         PluginContext.config 持引用、组件动态读取，多数配置自动生效，
         scope map 缓存已由 update_config 刷新；此处只同步启动时固化的
-        NoteCreateTool 注册状态（note_assistant.enable_create）。
+        笔记工具注册状态（note_assistant.enable_create / enable_edit）。
         provider 类改动（provider_id / embedding_provider_id 等）依赖
         后台初始化时创建的组件实例，需重载插件后生效。
         """
         if not self.llm_tools_enabled:
-            self.logger.warning("AngelMemory: LLM 工具未启用，跳过 NoteCreateTool 同步")
+            self.logger.warning("AngelMemory: LLM 工具未启用，跳过笔记工具同步")
             return
         note_config = self.plugin_context.get_config("note_assistant", {}) or {}
-        enabled = bool(note_config.get("enable_create", True))
-        registered = any(t.name == "angel_note_create" for t in self._llm_tools)
+        for tool_name, flag_key, factory in NOTE_TOOL_SPECS:
+            self._sync_note_tool(tool_name, bool(note_config.get(flag_key, True)), factory)
+
+    def _sync_note_tool(self, tool_name: str, enabled: bool, factory) -> None:
+        registered = any(t.name == tool_name for t in self._llm_tools)
         try:
             if enabled and not registered:
-                tool = NoteCreateTool()
+                tool = factory()
                 self.context.add_llm_tools(tool)
                 self._llm_tools.append(tool)
-                self.logger.info("AngelMemory: 已热注册 LLM 工具 angel_note_create")
+                self.logger.info(f"AngelMemory: 已热注册 LLM 工具 {tool_name}")
             elif not enabled and registered:
-                self.context.provider_manager.llm_tools.remove_func("angel_note_create")
-                self._llm_tools = [t for t in self._llm_tools if t.name != "angel_note_create"]
-                self.logger.info("AngelMemory: 已热移除 LLM 工具 angel_note_create")
+                self.context.provider_manager.llm_tools.remove_func(tool_name)
+                self._llm_tools = [t for t in self._llm_tools if t.name != tool_name]
+                self.logger.info(f"AngelMemory: 已热移除 LLM 工具 {tool_name}")
         except Exception as e:
-            self.logger.error(f"AngelMemory: 同步 NoteCreateTool 失败: {e}", exc_info=True)
+            self.logger.error(f"AngelMemory: 同步 LLM 工具 {tool_name} 失败: {e}", exc_info=True)
 
     def _load_complete_config(self):
         """在主线程检查配置项"""

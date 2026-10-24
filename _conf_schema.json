@@ -192,6 +192,12 @@
         "default": true,
         "hint": "开启后会向 LLM 注册 angel_note_create 工具，AI 可在学习或交流中主动整理并归档笔记；关闭则不注册该工具。"
       },
+      "enable_edit": {
+        "type": "bool",
+        "description": "允许 AI 编辑已有笔记",
+        "default": true,
+        "hint": "开启后会向 LLM 注册 angel_note_edit（精确替换）与 angel_note_write（整篇覆盖）工具；关闭则两者都不注册。AI 始终没有删除笔记的能力。"
+      },
       "top_k": {
         "type": "int",
         "description": "注入LLM的笔记数量上限",

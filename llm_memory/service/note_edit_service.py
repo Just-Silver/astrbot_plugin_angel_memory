@@ -20,6 +20,7 @@ except ImportError:
 
     logger = logging.getLogger(__name__)
 
+from ..utils.note_text import extract_h1
 from ..utils.text_edit import EditError, apply_edit
 
 SUPPORTED_SUFFIXES = {".md", ".txt"}
@@ -39,16 +40,6 @@ def _lock_for(abs_path: str) -> threading.Lock:
             lock = threading.Lock()
             _locks[abs_path] = lock
         return lock
-
-
-def extract_h1(content: str) -> str:
-    for raw_line in content.splitlines():
-        line = raw_line.strip()
-        if line.startswith("# "):
-            heading = line[2:].strip()
-            if heading:
-                return heading
-    return ""
 
 
 def _read_preserving_newlines(path: Path) -> str:
@@ -121,18 +112,28 @@ class NoteEditService:
         new_string: str,
         replace_all: bool = False,
     ) -> Dict[str, Any]:
+        # 参数错误优先于定位错误报出，避免模型顺着「笔记不存在」改方向
+        if not str(old_string or ""):
+            raise EditError(
+                "old_string 不能为空。新建笔记请用 angel_note_create，整篇覆盖请用 angel_note_write。"
+            )
+        if old_string == new_string:
+            raise EditError("没有变化：old_string 与 new_string 相同。")
+
         target = await self.resolve(note_short_id)
-        content, count, chunks = await asyncio.to_thread(
+        content, count, chunks, previous_title = await asyncio.to_thread(
             self._edit_sync,
             target,
             old_string,
             new_string,
             replace_all,
         )
+        title = extract_h1(content)
         return {
             **target,
             "replacements": count,
-            "title": extract_h1(content),
+            "title": title,
+            "title_changed": title != previous_title,
             "chunks": chunks,
         }
 
@@ -165,7 +166,8 @@ class NoteEditService:
             self._assert_unchanged(abs_path, before.st_mtime_ns)
             atomic_write_text(abs_path, edited)
             chunks = self._resync(target)
-        return edited, count, chunks
+            previous_title = extract_h1(source)
+        return edited, count, chunks, previous_title
 
     def _overwrite_sync(self, target: Dict[str, Any], content: str):
         abs_path = Path(target["abs_path"])

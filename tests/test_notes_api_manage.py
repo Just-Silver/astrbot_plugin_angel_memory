@@ -31,10 +31,11 @@ class FakeNoteService:
     def __init__(self):
         self.removed = []
         self.parsed = []
+        self.remove_result = True
 
     def remove_file_data_by_file_id(self, file_id):
         self.removed.append(file_id)
-        return True
+        return self.remove_result
 
     def parse_and_store_file_sync(self, file_path, relative_path):
         self.parsed.append(relative_path)
@@ -174,6 +175,35 @@ class TestDeleteNotes:
         status, _body = await post_json(workspace["app"], "/notes/delete", {"source_ids": []})
         assert status == 400
 
+    @pytest.mark.asyncio
+    async def test_path_outside_raw_is_refused(self, workspace):
+        conn = sqlite3.connect(workspace["db_path"])
+        conn.execute(
+            "INSERT INTO note_index_records VALUES ('note_file_99',99,'99','../outside.md','','','','','','',1,0)"
+        )
+        conn.commit()
+        conn.close()
+
+        status, body = await post_json(
+            workspace["app"], "/notes/delete", {"source_ids": ["note_file_99"]}
+        )
+
+        assert status == 200
+        assert body["deleted"] == []
+        assert body["failed"][0]["reason"] == "路径越界"
+
+    @pytest.mark.asyncio
+    async def test_index_cleanup_failure_is_reported_not_hidden(self, workspace):
+        workspace["note_service"].remove_result = False
+
+        status, body = await post_json(
+            workspace["app"], "/notes/delete", {"source_ids": ["note_file_11"]}
+        )
+
+        assert status == 200
+        assert body["deleted"] == []
+        assert "索引清理失败" in body["failed"][0]["reason"]
+
 
 class TestUploadPreview:
     @pytest.mark.asyncio
@@ -285,6 +315,52 @@ class TestUploadConfirm:
             workspace["app"],
             "/notes/upload/confirm",
             {"filename": "笔记.md", "title": "标题", "content": "   "},
+        )
+        assert status == 400
+
+    @pytest.mark.asyncio
+    async def test_unchanged_title_keeps_body_without_heading_untouched(self, workspace):
+        content = "没有标题的正文\n第二行\n"
+        status, body = await post_json(
+            workspace["app"],
+            "/notes/upload/confirm",
+            {
+                "filename": "备忘.md",
+                "title": "备忘",
+                "original_title": "备忘",
+                "content": content,
+            },
+        )
+
+        assert status == 200
+        target = workspace["raw_dir"] / body["saved"]["relative_path"]
+        assert target.read_text(encoding="utf-8") == content
+
+    @pytest.mark.asyncio
+    async def test_changed_title_does_not_touch_heading_inside_code_fence(self, workspace):
+        content = "```bash\n# 安装依赖\nnpm i\n```\n正文\n"
+        status, body = await post_json(
+            workspace["app"],
+            "/notes/upload/confirm",
+            {
+                "filename": "命令.md",
+                "title": "常用命令",
+                "original_title": "命令",
+                "content": content,
+            },
+        )
+
+        assert status == 200
+        target = workspace["raw_dir"] / body["saved"]["relative_path"]
+        written = target.read_text(encoding="utf-8")
+        assert "# 安装依赖" in written
+        assert written.startswith("# 常用命令\n\n```bash")
+
+    @pytest.mark.asyncio
+    async def test_over_size_upload_is_rejected(self, workspace):
+        big = base64.b64encode(b"a" * (2 * 1024 * 1024 + 1)).decode()
+        status, _body = await post_json(
+            workspace["app"], "/notes/upload", {"filename": "big.md", "base64": big}
         )
         assert status == 400
 

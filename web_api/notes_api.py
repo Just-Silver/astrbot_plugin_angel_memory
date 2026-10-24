@@ -16,8 +16,8 @@ from typing import Any
 
 from quart import jsonify, request
 
-from ..llm_memory.service.note_edit_service import atomic_write_text, extract_h1
-from ..llm_memory.utils.text_edit import is_pure_crlf
+from ..llm_memory.service.note_edit_service import atomic_write_text
+from ..llm_memory.utils.note_text import extract_h1, rewrite_title
 
 try:
     from astrbot.api import logger
@@ -359,10 +359,17 @@ class NotesAPI:
                     failed.append({"source_id": source_id, "reason": "路径越界"})
                     continue
 
-                # 先删文件，再清派生索引：最坏情况只留下可被文件监控兜底清理的孤儿索引
+                # 先删文件，再清派生索引：最坏情况只留下可被启动扫描兜底清理的孤儿索引
                 if target.exists():
                     target.unlink()
-                note_service.remove_file_data_by_file_id(record["file_id"])
+                if not note_service.remove_file_data_by_file_id(record["file_id"]):
+                    failed.append(
+                        {
+                            "source_id": source_id,
+                            "reason": "文件已删除，但索引清理失败（重启后由启动扫描重建）",
+                        }
+                    )
+                    continue
                 deleted.append(source_id)
             except Exception as exc:
                 logger.warning(f"删除笔记失败 source_id={source_id}: {exc}")
@@ -403,22 +410,12 @@ class NotesAPI:
 
     @staticmethod
     def _sanitize_title(title: str) -> str:
-        safe = re.sub(r'[<>:"/\\|?*\n\r\t]', "_", str(title or "").strip())
+        cleaned = "".join(
+            char for char in str(title or "") if char.isprintable() or char in " \t"
+        )
+        safe = re.sub(r'[<>:"/\\|?*]', "_", cleaned.replace("\t", " "))
         safe = re.sub(r"\s+", " ", safe).strip(". ")
-        return safe[:80] or "untitled"
-
-    @staticmethod
-    def _apply_title(content: str, title: str) -> str:
-        """把正文第一处 "# " 行改成新标题；没有 H1 则在文件头补一行。"""
-        lines = content.split("\n")
-        for index, line in enumerate(lines):
-            if line.lstrip().startswith("# "):
-                carriage = "\r" if line.endswith("\r") else ""
-                lines[index] = f"# {title}{carriage}"
-                return "\n".join(lines)
-
-        carriage = "\r" if is_pure_crlf(content) else ""
-        return f"# {title}{carriage}\n\n{content}"
+        return safe[:80].strip(". ") or "untitled"
 
     def _allocate_upload_path(self, title: str, extension: str) -> Path:
         upload_dir = self._get_raw_dir() / self.UPLOAD_SUBDIR
@@ -503,19 +500,38 @@ class NotesAPI:
         if note_service is None:
             return jsonify({"error": "笔记服务不可用"}), 503
 
-        body = content if extract_h1(content) == title else self._apply_title(content, title)
+        # 用户在预览弹窗里改标题时才会带上 original_title；
+        # 标题没变就一个字节都不动，避免「确认即格式化」。
+        original_title = str(data.get("original_title") or "").strip()
+        if not original_title:
+            original_title = extract_h1(content) or Path(filename).stem
+        body = content if title == original_title else rewrite_title(content, title)
+
         target = self._allocate_upload_path(title, extension)
         raw_root = self._get_raw_dir().resolve()
         relative_path = target.resolve().relative_to(raw_root).as_posix()
 
         try:
             await asyncio.to_thread(atomic_write_text, target, body)
+        except Exception as exc:
+            logger.error(f"[笔记上传] 写入失败 path={relative_path}: {exc}", exc_info=True)
+            return jsonify({"error": f"写入失败：{exc}"}), 500
+
+        try:
             chunks, _timings = await asyncio.to_thread(
                 note_service.parse_and_store_file_sync, str(target), relative_path
             )
         except Exception as exc:
-            logger.error(f"[笔记上传] 写入失败 path={relative_path}: {exc}", exc_info=True)
-            return jsonify({"error": f"写入失败：{exc}"}), 500
+            logger.error(f"[笔记上传] 索引更新失败 path={relative_path}: {exc}", exc_info=True)
+            return (
+                jsonify(
+                    {
+                        "error": f"文件已写入 {relative_path}，但索引更新失败：{exc}",
+                        "saved_path": relative_path,
+                    }
+                ),
+                500,
+            )
 
         note_short_id = -1
         conn = self._get_central_conn()

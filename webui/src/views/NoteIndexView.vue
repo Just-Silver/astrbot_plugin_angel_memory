@@ -115,7 +115,10 @@
       <div>以下文件会从磁盘移除，索引与切片一并清理，<b>不可撤销</b>。</div>
       <div class="delete-list">
         <div v-for="row in deleteTargets" :key="row.source_id" class="delete-item">
-          {{ row.source_file_path }}
+          <div>{{ row.source_file_path }}</div>
+          <div v-if="deleteTargets.length === 1" class="delete-meta">
+            {{ row.total_lines }} 行<template v-if="row.updated_at"> · 更新于 {{ formatTime(row.updated_at) }}</template>
+          </div>
         </div>
       </div>
     </n-modal>
@@ -144,6 +147,12 @@
         </n-descriptions>
         <n-alert v-if="uploadTitleSource === 'filename'" type="info" :bordered="false">
           正文里没有一级标题（# 开头），已用文件名作标题。
+        </n-alert>
+        <n-alert v-if="titleChanged" type="warning" :bordered="false">
+          确认后会把正文里的一级标题改写为新标题；下方预览仍显示上传时的原文。
+        </n-alert>
+        <n-alert type="info" :bordered="false">
+          若目录里已有同名文件，会自动加时间戳，不会覆盖。
         </n-alert>
         <pre class="code-pre">{{ uploadContent }}</pre>
       </n-space>
@@ -205,8 +214,13 @@ const uploadDialog = ref(false)
 const uploading = ref(false)
 const uploadSource = ref('')
 const uploadTitle = ref('')
+const uploadOriginalTitle = ref('')
 const uploadTitleSource = ref<'h1' | 'filename'>('h1')
 const uploadContent = ref('')
+
+const titleChanged = computed(
+  () => uploadTitle.value.trim() !== uploadOriginalTitle.value.trim(),
+)
 
 function buildHeading(item: any): string {
   const parts = []
@@ -239,8 +253,30 @@ const willSavePath = computed(() => {
   return `upload/${sanitizeTitle(uploadTitle.value)}${extension}`
 })
 
+function formatTime(value: number | string | null | undefined): string {
+  if (!value) return ''
+  const stamp = typeof value === 'number' ? value * 1000 : Date.parse(String(value))
+  if (!stamp || Number.isNaN(stamp)) return ''
+  const date = new Date(stamp)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 function sanitizeTitle(title: string): string {
-  return (title || '').replace(/[<>:"/\\|?*\n\r\t]/g, '_').replace(/\s+/g, ' ').trim() || 'untitled'
+  const cleaned = Array.from(title || '')
+    .filter(ch => {
+      const code = ch.codePointAt(0) ?? 0
+      return code >= 0x20 && code !== 0x7f
+    })
+    .join('')
+  const safe = cleaned
+    .replace(/[<>:"/\\|?*]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+    .slice(0, 80)
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+  return safe || 'untitled'
 }
 
 const selectedRows = computed(() =>
@@ -455,7 +491,13 @@ async function doDelete() {
     const deleted = data?.deleted?.length || 0
     const failed = data?.failed?.length || 0
     if (deleted) message.success(`已删除 ${deleted} 篇笔记`)
-    if (failed) message.warning(`${failed} 篇未能删除，请查看日志`)
+    if (failed) {
+      const reasons = (data?.failed || [])
+        .slice(0, 3)
+        .map((item: any) => `${item.source_id}：${item.reason}`)
+        .join('；')
+      message.warning(`${failed} 篇未能删除：${reasons}`, { duration: 8000 })
+    }
     deleteDialog.value = false
     previewDialog.value = false
     await loadData()
@@ -502,6 +544,7 @@ async function onFilePicked(event: Event) {
     const previewData = data.preview || {}
     uploadSource.value = previewData.filename || file.name
     uploadTitle.value = previewData.title || ''
+    uploadOriginalTitle.value = previewData.title || ''
     uploadTitleSource.value = previewData.title_source === 'filename' ? 'filename' : 'h1'
     uploadContent.value = previewData.content || ''
     uploadDialog.value = true
@@ -524,6 +567,7 @@ async function confirmUpload() {
     const data: any = await apiPost('notes/upload/confirm', {
       filename: uploadSource.value,
       title,
+      original_title: uploadOriginalTitle.value,
       content: uploadContent.value,
     })
     if (data?.error) {
@@ -580,5 +624,11 @@ onMounted(() => loadData())
   font-size: 12px;
   line-height: 1.9;
   word-break: break-all;
+}
+
+.delete-meta {
+  font-family: inherit;
+  font-size: 11px;
+  opacity: 0.6;
 }
 </style>

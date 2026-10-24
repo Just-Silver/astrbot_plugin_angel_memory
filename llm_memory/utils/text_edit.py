@@ -125,9 +125,7 @@ def _locate(view: str, search: str) -> List[Match]:
         if matches:
             return matches
 
-    if "\n" in search or search.rstrip() != search:
-        return _find_line_occurrences(view, search)
-    return []
+    return _find_line_occurrences(view, search)
 
 
 def apply_edit(

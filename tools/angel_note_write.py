@@ -68,7 +68,7 @@ class NoteWriteTool(FunctionTool):
             self.logger.error(f"{self.name}: 覆盖笔记失败: {exc}", exc_info=True)
             return f"错误：覆盖笔记失败：{exc}"
 
-        line_count = str(content or "").count("\n") + 1
+        line_count = len(str(content or "").splitlines())
         lines = [
             "[angel_note_write]",
             f"note_short_id: {result['note_short_id']}",

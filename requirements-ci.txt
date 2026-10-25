@@ -8,3 +8,5 @@ pytest-asyncio>=0.24.0
 ruff
 # 嵌入提供商测试会 import openai；运行时代码按需懒导入，故不进 requirements.txt
 openai>=1.0.0
+# 笔记管理的 API 测试直接导入 quart（运行环境由 AstrBot 提供）
+quart>=0.19.0

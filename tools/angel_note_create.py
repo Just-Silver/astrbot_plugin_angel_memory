@@ -10,6 +10,7 @@ try:
     from astrbot.api import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger(__name__)
 
 
@@ -100,12 +101,13 @@ class NoteCreateTool(FunctionTool):
         # 主动触发索引，确保立即可检索（相对路径需与文件监控扫描结果一致）
         try:
             import asyncio
-            await asyncio.to_thread(
-                note_service.parse_and_store_file_sync, str(target_path), relative_path
-            )
+
+            await asyncio.to_thread(note_service.parse_and_store_file_sync, str(target_path), relative_path)
         except Exception as e:
             self.logger.warning(f"{self.name}: 笔记已写入但索引同步失败（稍后扫描会补上）: {e}", exc_info=True)
             return f"笔记《{title}》已保存为 {filename}，但索引同步稍有延迟，稍后即可检索。"
 
         self.logger.info(f"{self.name}: 完成 笔记={filename} 标题={title}")
-        return f"学习笔记《{title}》已保存并归档为 {filename}，已纳入知识库索引，之后可通过检索或 angel_note_read 查看。"
+        return (
+            f"学习笔记《{title}》已保存并归档为 {filename}，已纳入知识库索引，之后可通过检索或 angel_note_read 查看。"
+        )

@@ -4,7 +4,7 @@ Angel Eye 插件 - JSON 解析工具
 """
 
 import json
-from typing import Dict, Optional, Any, List
+from typing import Any
 
 try:
     from astrbot.api import logger
@@ -25,21 +25,21 @@ def _strip_code_fences(text: str) -> str:
     return text.replace("```json", "").replace("```JSON", "").replace("```", "").strip()
 
 
-def _find_json_candidates(text: str) -> List[str]:
+def _find_json_candidates(text: str) -> list[str]:
     """
     在文本中扫描并返回所有"平衡的大括号"子串，作为潜在的 JSON 候选。
     - 跳过字符串字面量中的花括号
     - 支持嵌套
     返回顺序为出现顺序（从左到右）
     """
-    candidates: List[str] = []
+    candidates: list[str] = []
     if not text:
         return candidates
 
     in_string = False
     escape = False
     depth = 0
-    start_idx: Optional[int] = None
+    start_idx: int | None = None
 
     for i, ch in enumerate(text):
         if in_string:
@@ -82,7 +82,7 @@ class JsonParser:
         """初始化 JSON 解析器。"""
         self.logger = logger
 
-    def parse_llm_response(self, response_text: str) -> Optional[Dict[str, Any]]:
+    def parse_llm_response(self, response_text: str) -> dict[str, Any] | None:
         """
         从 LLM 响应文本中解析出 feedback_data 字典。
 
@@ -112,30 +112,24 @@ class JsonParser:
             if isinstance(feedback_data, str):
                 try:
                     feedback_data = json.loads(feedback_data)
-                    self.logger.debug(
-                        "JsonParser: feedback_data 是字符串，已重新解析为字典"
-                    )
+                    self.logger.debug("JsonParser: feedback_data 是字符串，已重新解析为字典")
                 except json.JSONDecodeError:
-                    self.logger.warning(
-                        "JsonParser: feedback_data 是字符串但无法解析为 JSON"
-                    )
+                    self.logger.warning("JsonParser: feedback_data 是字符串但无法解析为 JSON")
                     return None
 
             return feedback_data
         else:
             # 如果没有 feedback_data 包装，直接返回整个 JSON
-            self.logger.debug(
-                "JsonParser: JSON 中未找到 'feedback_data' 字段，返回整个 JSON"
-            )
+            self.logger.debug("JsonParser: JSON 中未找到 'feedback_data' 字段，返回整个 JSON")
             return json_data
 
     def extract_json(
         self,
         text: str,
         separator: str = "---JSON---",
-        required_fields: Optional[List[str]] = None,
-        optional_fields: Optional[List[str]] = None,
-    ) -> Optional[Dict[str, Any]]:
+        required_fields: list[str] | None = None,
+        optional_fields: list[str] | None = None,
+    ) -> dict[str, Any] | None:
         """
         从可能包含其他文本的字符串中，智能地提取最符合条件的单个JSON对象。
 
@@ -157,9 +151,7 @@ class JsonParser:
         :return: 最符合条件的JSON对象（字典），如果找不到则返回None。
         """
         if not isinstance(text, str):
-            self.logger.warning(
-                f"JsonParser: 输入不是字符串，而是 {type(text)} 类型，无法解析"
-            )
+            self.logger.warning(f"JsonParser: 输入不是字符串，而是 {type(text)} 类型，无法解析")
             return None
 
         if not text.strip():
@@ -197,9 +189,7 @@ class JsonParser:
                 # 硬性条件：检查必须字段
                 if required_fields:
                     if not all(field in parsed_json for field in required_fields):
-                        self.logger.debug(
-                            f"候选JSON缺少必须字段，跳过: {candidate_str[:100]}..."
-                        )
+                        self.logger.debug(f"候选JSON缺少必须字段，跳过: {candidate_str[:100]}...")
                         continue
 
                 # 计算分数
@@ -222,7 +212,5 @@ class JsonParser:
         qualified_jsons.sort(key=lambda x: x["score"])
         best_json_item = qualified_jsons[-1]
 
-        self.logger.info(
-            f"JsonParser: 提取成功，选择了得分最高的JSON（得分: {best_json_item['score']}）。"
-        )
+        self.logger.info(f"JsonParser: 提取成功，选择了得分最高的JSON（得分: {best_json_item['score']}）。")
         return best_json_item["json"]

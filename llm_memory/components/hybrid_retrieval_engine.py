@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import inspect
 import time
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 try:
     from astrbot.api import logger
@@ -21,7 +22,7 @@ class HybridRetrievalEngine:
     def __init__(
         self,
         retriever: Any,
-        rerank_provider: Optional[Any] = None,
+        rerank_provider: Any | None = None,
         rerank_timeout: int | None = None,
         rerank_max_docs: int | None = None,
         rerank_max_tokens_per_doc: int | None = None,
@@ -48,7 +49,7 @@ class HybridRetrievalEngine:
         return self.rerank_provider is not None and hasattr(self.rerank_provider, "rerank")
 
     @staticmethod
-    def _rank_normalize(size: int) -> List[float]:
+    def _rank_normalize(size: int) -> list[float]:
         if size <= 0:
             return []
         if size == 1:
@@ -57,11 +58,13 @@ class HybridRetrievalEngine:
         return [1.0 - (idx / denom) for idx in range(size)]
 
     @staticmethod
-    def _extract_rerank_results(rerank_resp: Any) -> List[Dict[str, Any]]:
+    def _extract_rerank_results(rerank_resp: Any) -> list[dict[str, Any]]:
         return extract_rerank_items(rerank_resp)
 
     def _resolve_provider_id(self) -> str:
-        raw = str(getattr(self.rerank_provider, "provider_id", "") or getattr(self.rerank_provider, "id", "") or "").strip()
+        raw = str(
+            getattr(self.rerank_provider, "provider_id", "") or getattr(self.rerank_provider, "id", "") or ""
+        ).strip()
         if raw:
             return raw
         try:
@@ -69,18 +72,21 @@ class HybridRetrievalEngine:
         except Exception:
             return "unknown"
 
-    def _prepare_rerank_inputs(self, query: str, ordered_ids: List[str], doc_text_map: Dict[str, str]):
+    def _prepare_rerank_inputs(self, query: str, ordered_ids: list[str], doc_text_map: dict[str, str]):
         """按 docs 上限与单段 token 预算裁剪后返回 passages/documents。"""
         # docs 限流
         if len(ordered_ids) > self._rerank_max_docs:
             ordered_ids = ordered_ids[: self._rerank_max_docs]
-        passages: List[Dict[str, str]] = []
-        documents: List[str] = []
+        passages: list[dict[str, str]] = []
+        documents: list[str] = []
         # 懒导入，避免循环
         try:
             from ..utils.token_utils import truncate_by_tokens
         except Exception:
-            truncate_by_tokens = lambda t, n: t  # type: ignore
+
+            def truncate_by_tokens(t, n):
+                return t
+
         # query 也按预算截断（bge 每对 8192，query 1024 足够）
         safe_query = str(query or "")
         try:
@@ -115,9 +121,9 @@ class HybridRetrievalEngine:
     async def rerank_candidates(
         self,
         query: str,
-        ordered_ids: List[str],
-        doc_text_map: Dict[str, str],
-    ) -> List[Dict[str, float]]:
+        ordered_ids: list[str],
+        doc_text_map: dict[str, str],
+    ) -> list[dict[str, float]]:
         if not ordered_ids or not self.has_rerank():
             return []
 
@@ -142,7 +148,7 @@ class HybridRetrievalEngine:
             if inspect.isawaitable(rerank_resp):
                 try:
                     rerank_resp = await asyncio.wait_for(rerank_resp, timeout=self._rerank_timeout)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     elapsed_ms = int((time.time() - start_ts) * 1000)
                     logger.warning(
                         f"[混合检索] 重排超时，已降级为融合/ BM25 排序 "
@@ -151,12 +157,14 @@ class HybridRetrievalEngine:
                     return []
             elapsed_ms = int((time.time() - start_ts) * 1000)
             if elapsed_ms > self._rerank_timeout * 1000:
-                logger.debug(f"[混合检索] 重排同步耗时偏长 provider={provider_id} elapsed={elapsed_ms}ms timeout={self._rerank_timeout}s")
+                logger.debug(
+                    f"[混合检索] 重排同步耗时偏长 provider={provider_id} elapsed={elapsed_ms}ms timeout={self._rerank_timeout}s"
+                )
             items = self._extract_rerank_results(rerank_resp)
             if not items:
                 return []
 
-            scored: List[Dict[str, Any]] = []
+            scored: list[dict[str, Any]] = []
             for idx, item in enumerate(items):
                 item_id = str(item.get("id") or "").strip()
                 if not item_id and item.get("index") is not None:
@@ -197,7 +205,9 @@ class HybridRetrievalEngine:
                 key=lambda x: (float(x.get("final_score", 0.0)), -int(x.get("rank_index", 0))),
                 reverse=True,
             )
-            logger.debug(f"[混合检索] 重排完成 provider={provider_id} elapsed={elapsed_ms}ms docs={len(documents)} scored={len(scored)}")
+            logger.debug(
+                f"[混合检索] 重排完成 provider={provider_id} elapsed={elapsed_ms}ms docs={len(documents)} scored={len(scored)}"
+            )
             return scored
         except Exception as e:
             elapsed_ms = int((time.time() - start_ts) * 1000) if "start_ts" in locals() else -1
@@ -212,7 +222,7 @@ class HybridRetrievalEngine:
             return []
 
     @staticmethod
-    def _merge_ids(vector_scores: Dict[str, float], bm25_hits: List[Dict[str, Any]], candidate_limit: int) -> List[str]:
+    def _merge_ids(vector_scores: dict[str, float], bm25_hits: list[dict[str, Any]], candidate_limit: int) -> list[str]:
         vector_sorted = sorted(
             vector_scores.items(),
             key=lambda x: float(x[1]),
@@ -221,7 +231,7 @@ class HybridRetrievalEngine:
         vector_ids = [str(item_id).strip() for item_id, _ in vector_sorted if str(item_id).strip()]
         bm25_ids = [str(item.get("id") or "").strip() for item in bm25_hits if str(item.get("id") or "").strip()]
 
-        merged_ids: List[str] = []
+        merged_ids: list[str] = []
         seen = set()
         for item_id in vector_ids + bm25_ids:
             if item_id in seen:
@@ -236,11 +246,11 @@ class HybridRetrievalEngine:
         limit: int,
         candidate_limit: int,
         bm25_limit: int,
-        vector_scores: Optional[Dict[str, float]],
-        bm25_only_search: Callable[[str, int], List[Dict[str, Any]]],
-        fusion_search: Callable[[str, int, int, Dict[str, float]], List[Dict[str, Any]]],
-        build_doc_text_map: Callable[[List[str]], Dict[str, str]],
-    ) -> List[Dict[str, Any]]:
+        vector_scores: dict[str, float] | None,
+        bm25_only_search: Callable[[str, int], list[dict[str, Any]]],
+        fusion_search: Callable[[str, int, int, dict[str, float]], list[dict[str, Any]]],
+        build_doc_text_map: Callable[[list[str]], dict[str, str]],
+    ) -> list[dict[str, Any]]:
         has_vector = bool(vector_scores)
         has_rerank = self.has_rerank()
         safe_query = str(query or "").strip()

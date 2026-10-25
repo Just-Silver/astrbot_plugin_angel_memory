@@ -19,7 +19,7 @@ import re
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 try:
     from astrbot.api import logger
@@ -28,10 +28,9 @@ except ImportError:
 
     logger = logging.getLogger(__name__)
 
-from ..utils.rerank_utils import extract_rerank_items
-
 import tantivy
 
+from ..utils.rerank_utils import extract_rerank_items
 
 # ============================================================
 # 分词工具（CJK bigram，不依赖词典）
@@ -60,13 +59,13 @@ def iter_cjk_fragments(
     text: str,
     include_unigram: bool = True,
     max_ngram: int = 2,
-) -> List[str]:
+) -> list[str]:
     """提取 CJK bigram + 英文 token"""
     normalized = normalize_search_text(text)
     if not normalized:
         return []
 
-    tokens: List[str] = []
+    tokens: list[str] = []
     seen: set = set()
     parts = re.findall(r"[\u4e00-\u9fff]+|[a-z0-9_]+", normalized)
     for part in parts:
@@ -88,11 +87,11 @@ def iter_cjk_fragments(
     return tokens
 
 
-def select_required_cjk_ngrams(query: str) -> List[str]:
+def select_required_cjk_ngrams(query: str) -> list[str]:
     """选择严格匹配所需的 ngram（2字为主，短词保留原样）"""
     normalized = normalize_search_text(query)
     parts = re.findall(r"[\u4e00-\u9fff]+|[a-z0-9_]+", normalized)
-    terms: List[str] = []
+    terms: list[str] = []
     seen: set = set()
     for part in parts:
         if not re.search(r"[\u4e00-\u9fff]", part):
@@ -130,14 +129,14 @@ def _escape_query_term(term: str) -> str:
     return escaped
 
 
-def _build_all_terms_query(terms: List[str]) -> str:
+def _build_all_terms_query(terms: list[str]) -> str:
     """所有词都必须命中"""
     if not terms:
         return ""
     return " ".join(f"+{_escape_query_term(t)}" for t in terms)
 
 
-def _build_any_terms_query(terms: List[str]) -> str:
+def _build_any_terms_query(terms: list[str]) -> str:
     """任一词命中即可"""
     if not terms:
         return ""
@@ -170,7 +169,7 @@ class NoteChunkSearchEngine:
     def __init__(
         self,
         index_dir: str,
-        rerank_provider: Optional[Any] = None,
+        rerank_provider: Any | None = None,
         rerank_timeout: int | None = None,
         rerank_max_docs: int | None = None,
         rerank_max_tokens_per_doc: int | None = None,
@@ -220,7 +219,9 @@ class NoteChunkSearchEngine:
         return self._rerank_provider is not None and hasattr(self._rerank_provider, "rerank")
 
     def _resolve_provider_id(self) -> str:
-        raw = str(getattr(self._rerank_provider, "provider_id", "") or getattr(self._rerank_provider, "id", "") or "").strip()
+        raw = str(
+            getattr(self._rerank_provider, "provider_id", "") or getattr(self._rerank_provider, "id", "") or ""
+        ).strip()
         if raw:
             return raw
         try:
@@ -228,7 +229,7 @@ class NoteChunkSearchEngine:
         except Exception:
             return "unknown"
 
-    def _prepare_rerank_candidates(self, query: str, candidates: List[Dict], limit: int):
+    def _prepare_rerank_candidates(self, query: str, candidates: list[dict], limit: int):
         """按 max_docs 与单段 token 预算裁剪候选，供 _apply_rerank 复用。"""
         if not candidates:
             return query, [], 0, 0
@@ -236,7 +237,6 @@ class NoteChunkSearchEngine:
         # docs 限流：保留 BM25 顺序前 N
         if len(candidates) > self._rerank_max_docs:
             candidates = candidates[: self._rerank_max_docs]
-        kept = len(candidates)
         # query 截断
         safe_query = str(query or "")
         try:
@@ -264,7 +264,7 @@ class NoteChunkSearchEngine:
     # 索引写入
     # ============================================================
 
-    def index_chunks(self, file_id: str, source_file_path: str, chunks: List[Dict]) -> int:
+    def index_chunks(self, file_id: str, source_file_path: str, chunks: list[dict]) -> int:
         """
         为一个文件的切片建立索引（先删旧再写新）。
 
@@ -316,7 +316,7 @@ class NoteChunkSearchEngine:
             writer.commit()
             self._index.reload()
 
-    def rebuild_all(self, all_chunks: List[Dict]) -> int:
+    def rebuild_all(self, all_chunks: list[dict]) -> int:
         """
         全量重建索引。
 
@@ -339,9 +339,7 @@ class NoteChunkSearchEngine:
                     continue
 
                 content_cjk2_text = tokenize_for_index(content)
-                path_cjk2_text = tokenize_for_index(
-                    source_file_path.replace("/", " ").replace("\\", " ")
-                )
+                path_cjk2_text = tokenize_for_index(source_file_path.replace("/", " ").replace("\\", " "))
                 if not content_cjk2_text:
                     continue
 
@@ -374,7 +372,7 @@ class NoteChunkSearchEngine:
         query: str,
         limit: int = 20,
         max_chunks_per_file: int = DEFAULT_CHUNKS_PER_FILE,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """
         多词搜索：按空格/竖线拆词，每个词独立搜索，合并后按命中词数排序。
 
@@ -409,7 +407,7 @@ class NoteChunkSearchEngine:
         query: str,
         limit: int = 20,
         max_chunks_per_file: int = DEFAULT_CHUNKS_PER_FILE,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """异步搜索入口，可正确等待异步 rerank_provider。"""
         merged = self._search_candidates(query, limit, max_chunks_per_file)
         if not merged:
@@ -429,7 +427,7 @@ class NoteChunkSearchEngine:
         query: str,
         limit: int,
         max_chunks_per_file: int,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """执行 BM25 多级搜索并返回待 rerank 候选。"""
         normalized_query = normalize_search_text(query)
         if not normalized_query:
@@ -446,14 +444,14 @@ class NoteChunkSearchEngine:
 
         # 多词：每个词独立搜索
         per_term_limit = max(limit * 3, 50)
-        term_results: Dict[str, List[Dict]] = {}
+        term_results: dict[str, list[dict]] = {}
         for term in query_terms:
             results = self._search_single_term(term, per_term_limit, max_chunks_per_file)
             term_results[term] = results
 
         # 合并：统计每个切片命中了多少个词
-        chunk_map: Dict[str, Dict] = {}  # key = file_id#chunk_index
-        chunk_matched_terms: Dict[str, set] = {}
+        chunk_map: dict[str, dict] = {}  # key = file_id#chunk_index
+        chunk_matched_terms: dict[str, set] = {}
 
         for term, results in term_results.items():
             for r in results:
@@ -485,10 +483,10 @@ class NoteChunkSearchEngine:
         return merged
 
     @staticmethod
-    def _cap_chunks_per_file(items: List[Dict], max_chunks_per_file: int) -> List[Dict]:
+    def _cap_chunks_per_file(items: list[dict], max_chunks_per_file: int) -> list[dict]:
         cap = max(1, int(max_chunks_per_file or 1))
-        counts: Dict[str, int] = {}
-        capped: List[Dict] = []
+        counts: dict[str, int] = {}
+        capped: list[dict] = []
         for item in items:
             file_id = str(item.get("file_id") or "")
             if not file_id:
@@ -501,7 +499,7 @@ class NoteChunkSearchEngine:
         return capped
 
     @staticmethod
-    def _clear_internal_fields(items: List[Dict]) -> None:
+    def _clear_internal_fields(items: list[dict]) -> None:
         for item in items:
             item.pop("_matched_term_count", None)
 
@@ -510,7 +508,7 @@ class NoteChunkSearchEngine:
         term: str,
         limit: int,
         max_chunks_per_file: int,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """单词多级搜索（2-gram AND → 1+2-gram OR 降级）+ 后过滤"""
         normalized = normalize_search_text(term)
         if not normalized:
@@ -553,9 +551,7 @@ class NoteChunkSearchEngine:
                 max_chunks_per_file=max_chunks_per_file,
                 stage_rank=1,
             )
-            candidates = self._merge_candidates(
-                candidates, loose_candidates, desired_file_count, max_chunks_per_file
-            )
+            candidates = self._merge_candidates(candidates, loose_candidates, desired_file_count, max_chunks_per_file)
 
         return candidates[:limit]
 
@@ -568,7 +564,7 @@ class NoteChunkSearchEngine:
         desired_file_count: int,
         max_chunks_per_file: int,
         stage_rank: int,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """单阶段搜索，自动扩大 hit_limit 直到满足文件数目标"""
         if not query_string:
             return []
@@ -579,10 +575,10 @@ class NoteChunkSearchEngine:
         ceiling = max(fetch_limit, hit_limit_ceiling)
 
         while True:
-            candidates: List[Dict] = []
+            candidates: list[dict] = []
             search_result = searcher.search(parsed_query, limit=fetch_limit)
             seen_chunk_keys: set = set()
-            file_chunk_counts: Dict[str, int] = {}
+            file_chunk_counts: dict[str, int] = {}
 
             for score, doc_address in search_result.hits:
                 doc = searcher.doc(doc_address)
@@ -601,16 +597,18 @@ class NoteChunkSearchEngine:
                 seen_chunk_keys.add(chunk_key)
                 file_chunk_counts[file_id] = file_chunk_counts.get(file_id, 0) + 1
 
-                candidates.append({
-                    "file_id": file_id,
-                    "source_file_path": source_file_path,
-                    "chunk_index": chunk_index,
-                    "line_start": self._doc_first_int(doc, "line_start"),
-                    "line_end": self._doc_first_int(doc, "line_end"),
-                    "content": self._doc_first(doc, "content_raw"),
-                    "score": float(score),
-                    "stage_rank": stage_rank,
-                })
+                candidates.append(
+                    {
+                        "file_id": file_id,
+                        "source_file_path": source_file_path,
+                        "chunk_index": chunk_index,
+                        "line_start": self._doc_first_int(doc, "line_start"),
+                        "line_end": self._doc_first_int(doc, "line_end"),
+                        "content": self._doc_first(doc, "content_raw"),
+                        "score": float(score),
+                        "stage_rank": stage_rank,
+                    }
+                )
 
                 if len(file_chunk_counts) >= desired_file_count:
                     break
@@ -624,18 +622,18 @@ class NoteChunkSearchEngine:
 
     def _merge_candidates(
         self,
-        strict: List[Dict],
-        loose: List[Dict],
+        strict: list[dict],
+        loose: list[dict],
         desired_file_count: int,
         max_chunks_per_file: int,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """合并严格和宽松结果，去重"""
         if not strict:
             return loose
 
         merged = list(strict)
         seen_keys = {f"{c['file_id']}#{c['chunk_index']}" for c in strict}
-        file_chunk_counts: Dict[str, int] = {}
+        file_chunk_counts: dict[str, int] = {}
         for c in strict:
             fid = c["file_id"]
             file_chunk_counts[fid] = file_chunk_counts.get(fid, 0) + 1
@@ -658,14 +656,16 @@ class NoteChunkSearchEngine:
 
         return merged
 
-    def _apply_rerank(self, query: str, candidates: List[Dict], limit: int) -> List[Dict]:
+    def _apply_rerank(self, query: str, candidates: list[dict], limit: int) -> list[dict]:
         """调用 rerank_provider 对候选重排（同步路径，搜索超时走 rerank_timeout）"""
         if not candidates:
             return []
         # 预算裁剪
         safe_query, candidates, orig_len, truncated = self._prepare_rerank_candidates(query, list(candidates), limit)
         if orig_len > len(candidates):
-            logger.debug(f"[笔记切片] 重排候选截断 orig={orig_len} kept={len(candidates)} max_docs={self._rerank_max_docs}")
+            logger.debug(
+                f"[笔记切片] 重排候选截断 orig={orig_len} kept={len(candidates)} max_docs={self._rerank_max_docs}"
+            )
         if truncated:
             logger.debug(f"[笔记切片] 重排单段截断 count={truncated} max_tokens={self._rerank_max_tokens_per_doc}")
 
@@ -688,10 +688,8 @@ class NoteChunkSearchEngine:
                     return candidates[:limit]
                 except RuntimeError:
                     try:
-                        rerank_resp = asyncio.run(
-                            asyncio.wait_for(rerank_resp, timeout=self._rerank_timeout)
-                        )
-                    except asyncio.TimeoutError:
+                        rerank_resp = asyncio.run(asyncio.wait_for(rerank_resp, timeout=self._rerank_timeout))
+                    except TimeoutError:
                         elapsed_ms = int((time.time() - start_ts) * 1000)
                         logger.warning(
                             f"[笔记切片] 重排超时，已降级为 BM25 排序 provider={provider_id} timeout={self._rerank_timeout}s elapsed={elapsed_ms}ms docs={len(documents)} query_len={len(safe_query)}"
@@ -702,23 +700,31 @@ class NoteChunkSearchEngine:
             scored = self._extract_rerank_scores(rerank_resp, candidates)
             if scored:
                 scored.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
-                logger.debug(f"[笔记切片] 重排完成 provider={provider_id} elapsed={elapsed_ms}ms docs={len(documents)} scored={len(scored)}")
+                logger.debug(
+                    f"[笔记切片] 重排完成 provider={provider_id} elapsed={elapsed_ms}ms docs={len(documents)} scored={len(scored)}"
+                )
                 return scored[:limit]
-            logger.debug(f"[笔记切片] 重排无有效结果 provider={provider_id} elapsed={elapsed_ms}ms docs={len(documents)}")
+            logger.debug(
+                f"[笔记切片] 重排无有效结果 provider={provider_id} elapsed={elapsed_ms}ms docs={len(documents)}"
+            )
         except Exception as e:
             elapsed_ms = int((time.time() - start_ts) * 1000) if "start_ts" in locals() else -1
-            logger.warning(f"[笔记切片] 重排失败，已降级 provider={provider_id} elapsed={elapsed_ms}ms 异常={e}", exc_info=True)
+            logger.warning(
+                f"[笔记切片] 重排失败，已降级 provider={provider_id} elapsed={elapsed_ms}ms 异常={e}", exc_info=True
+            )
 
         # 降级：按原始 BM25 分数排序
         return candidates[:limit]
 
-    async def _apply_rerank_async(self, query: str, candidates: List[Dict], limit: int) -> List[Dict]:
+    async def _apply_rerank_async(self, query: str, candidates: list[dict], limit: int) -> list[dict]:
         """异步调用 rerank_provider 对候选重排（搜索超时走 rerank_timeout）。"""
         if not candidates:
             return []
         safe_query, candidates, orig_len, truncated = self._prepare_rerank_candidates(query, list(candidates), limit)
         if orig_len > len(candidates):
-            logger.debug(f"[笔记切片] 重排候选截断 orig={orig_len} kept={len(candidates)} max_docs={self._rerank_max_docs}")
+            logger.debug(
+                f"[笔记切片] 重排候选截断 orig={orig_len} kept={len(candidates)} max_docs={self._rerank_max_docs}"
+            )
         if truncated:
             logger.debug(f"[笔记切片] 重排单段截断 count={truncated} max_tokens={self._rerank_max_tokens_per_doc}")
 
@@ -731,7 +737,7 @@ class NoteChunkSearchEngine:
             if inspect.isawaitable(rerank_resp):
                 try:
                     rerank_resp = await asyncio.wait_for(rerank_resp, timeout=self._rerank_timeout)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     elapsed_ms = int((time.time() - start_ts) * 1000)
                     logger.warning(
                         f"[笔记切片] 重排超时，已降级为 BM25 排序 provider={provider_id} timeout={self._rerank_timeout}s elapsed={elapsed_ms}ms docs={len(documents)} query_len={len(safe_query)}"
@@ -742,19 +748,25 @@ class NoteChunkSearchEngine:
             scored = self._extract_rerank_scores(rerank_resp, candidates)
             if scored:
                 scored.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
-                logger.debug(f"[笔记切片] 重排完成 provider={provider_id} elapsed={elapsed_ms}ms docs={len(documents)} scored={len(scored)}")
+                logger.debug(
+                    f"[笔记切片] 重排完成 provider={provider_id} elapsed={elapsed_ms}ms docs={len(documents)} scored={len(scored)}"
+                )
                 return scored[:limit]
-            logger.debug(f"[笔记切片] 重排无有效结果 provider={provider_id} elapsed={elapsed_ms}ms docs={len(documents)}")
+            logger.debug(
+                f"[笔记切片] 重排无有效结果 provider={provider_id} elapsed={elapsed_ms}ms docs={len(documents)}"
+            )
         except Exception as e:
             elapsed_ms = int((time.time() - start_ts) * 1000) if "start_ts" in locals() else -1
-            logger.warning(f"[笔记切片] 重排失败，已降级 provider={provider_id} elapsed={elapsed_ms}ms 异常={e}", exc_info=True)
+            logger.warning(
+                f"[笔记切片] 重排失败，已降级 provider={provider_id} elapsed={elapsed_ms}ms 异常={e}", exc_info=True
+            )
 
         return candidates[:limit]
 
     @staticmethod
-    def _extract_rerank_scores(rerank_resp: Any, candidates: List[Dict]) -> List[Dict]:
+    def _extract_rerank_scores(rerank_resp: Any, candidates: list[dict]) -> list[dict]:
         """从 rerank 响应中提取分数"""
-        scored: List[Dict] = []
+        scored: list[dict] = []
         for item in extract_rerank_items(rerank_resp):
             index = item.get("index")
             if index is None or index < 0 or index >= len(candidates):
@@ -771,11 +783,11 @@ class NoteChunkSearchEngine:
     # ============================================================
 
     @staticmethod
-    def _count_unique_files(candidates: List[Dict]) -> int:
+    def _count_unique_files(candidates: list[dict]) -> int:
         return len({c.get("file_id") for c in candidates if c.get("file_id")})
 
     @staticmethod
-    def _post_filter(candidates: List[Dict], query_terms: List[str]) -> List[Dict]:
+    def _post_filter(candidates: list[dict], query_terms: list[str]) -> list[dict]:
         """后过滤：content 必须包含至少一个原始查询词（精确子串匹配）"""
         if not query_terms:
             return candidates

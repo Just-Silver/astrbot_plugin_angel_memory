@@ -4,8 +4,8 @@
 处理插件的配置选项和默认值。
 """
 
-from typing import Any, Dict, Union
 from dataclasses import dataclass
+from typing import Any
 
 
 class ConfigValidator:
@@ -21,22 +21,16 @@ class ConfigValidator:
         return value
 
     @staticmethod
-    def validate_non_negative_int(
-        value: Any, field_name: str, max_value: int = None
-    ) -> int:
+    def validate_non_negative_int(value: Any, field_name: str, max_value: int = None) -> int:
         """验证非负整数"""
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-            raise ValueError(
-                f"{field_name} must be a non-negative integer, got: {value}"
-            )
+            raise ValueError(f"{field_name} must be a non-negative integer, got: {value}")
         if max_value is not None and value > max_value:
             raise ValueError(f"{field_name} too large (max {max_value}), got: {value}")
         return value
 
     @staticmethod
-    def validate_positive_number(
-        value: Any, field_name: str, max_value: Union[int, float] = None
-    ) -> float:
+    def validate_positive_number(value: Any, field_name: str, max_value: int | float = None) -> float:
         """验证正数（整数或浮点数）"""
         if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
             raise ValueError(f"{field_name} must be a positive number, got: {value}")
@@ -48,9 +42,7 @@ class ConfigValidator:
     def validate_bool(value: Any, field_name: str) -> bool:
         """验证布尔值"""
         if not isinstance(value, bool):
-            raise ValueError(
-                f"{field_name} must be a boolean, got: {type(value).__name__}"
-            )
+            raise ValueError(f"{field_name} must be a boolean, got: {type(value).__name__}")
         return value
 
     @staticmethod
@@ -120,7 +112,7 @@ class MemoryConfig:
 
     def __init__(
         self,
-        config: Dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
         data_dir: str = MemoryConstants.DEFAULT_DATA_DIR,
     ):
         """
@@ -142,12 +134,14 @@ class MemoryConfig:
         memory_behavior = config_get("memory_behavior", {})
 
         self._min_message_length = ConfigValidator.validate_positive_int(
-            memory_behavior.get("min_message_length") or config_get("min_message_length", MemoryConstants.MIN_MESSAGE_LENGTH),
+            memory_behavior.get("min_message_length")
+            or config_get("min_message_length", MemoryConstants.MIN_MESSAGE_LENGTH),
             "min_message_length",
             max_value=500,
         )
         self._short_term_memory_capacity = ConfigValidator.validate_positive_number(
-            memory_behavior.get("short_term_memory_capacity") or config_get("short_term_memory_capacity", MemoryConstants.SHORT_TERM_MEMORY_CAPACITY),
+            memory_behavior.get("short_term_memory_capacity")
+            or config_get("short_term_memory_capacity", MemoryConstants.SHORT_TERM_MEMORY_CAPACITY),
             "short_term_memory_capacity",
             max_value=10.0,
         )
@@ -163,9 +157,7 @@ class MemoryConfig:
         if not isinstance(retrieval, dict):
             retrieval = {}
         self._rerank_provider_id = str(
-            retrieval.get("rerank_provider_id")
-            or config_get("rerank_provider_id", "")
-            or ""
+            retrieval.get("rerank_provider_id") or config_get("rerank_provider_id", "") or ""
         )
 
         # 向量请求参数（retrieval 下，兼容顶层旧字段）
@@ -213,7 +205,11 @@ class MemoryConfig:
         if note_topk_raw is None:
             # 兼容旧格式
             note_topk = config_get("note_topk", {})
-            note_topk_raw = note_topk.get("top_k", MemoryConstants.NOTE_TOP_K) if isinstance(note_topk, dict) else MemoryConstants.NOTE_TOP_K
+            note_topk_raw = (
+                note_topk.get("top_k", MemoryConstants.NOTE_TOP_K)
+                if isinstance(note_topk, dict)
+                else MemoryConstants.NOTE_TOP_K
+            )
         self._note_top_k = ConfigValidator.validate_non_negative_int(
             note_topk_raw,
             "note_assistant.top_k",
@@ -250,94 +246,75 @@ class MemoryConfig:
             soul_system_config = {}
         else:
             self._enable_soul_system = ConfigValidator.validate_bool(
-                soul_system_config.get("enabled", True),
-                "enable_soul_system.enabled"
+                soul_system_config.get("enabled", True), "enable_soul_system.enabled"
             )
 
         # RecallDepth 参数 - 优先使用新格式，其次旧格式，最后默认值
         self._soul_recall_depth_min = ConfigValidator.validate_positive_int(
-            config_get("soul_recall_depth_min", 3),
-            "soul_recall_depth_min"
+            config_get("soul_recall_depth_min", 3), "soul_recall_depth_min"
         )
         self._soul_recall_depth_mid = ConfigValidator.validate_positive_int(
             soul_system_config.get("recall_depth_mid") or config_get("soul_recall_depth_mid", 7),
-            "soul_recall_depth_mid"
+            "soul_recall_depth_mid",
         )
         self._soul_recall_depth_max = ConfigValidator.validate_positive_int(
-            config_get("soul_recall_depth_max", 20),
-            "soul_recall_depth_max"
+            config_get("soul_recall_depth_max", 20), "soul_recall_depth_max"
         )
         ConfigValidator.validate_range_order(
-            self._soul_recall_depth_min,
-            self._soul_recall_depth_mid,
-            self._soul_recall_depth_max,
-            "soul_recall_depth"
+            self._soul_recall_depth_min, self._soul_recall_depth_mid, self._soul_recall_depth_max, "soul_recall_depth"
         )
 
         # ImpressionDepth 参数
         self._soul_impression_depth_min = ConfigValidator.validate_positive_int(
-            config_get("soul_impression_depth_min", 1),
-            "soul_impression_depth_min"
+            config_get("soul_impression_depth_min", 1), "soul_impression_depth_min"
         )
         self._soul_impression_depth_mid = ConfigValidator.validate_positive_int(
             soul_system_config.get("impression_depth_mid") or config_get("soul_impression_depth_mid", 3),
-            "soul_impression_depth_mid"
+            "soul_impression_depth_mid",
         )
         self._soul_impression_depth_max = ConfigValidator.validate_positive_int(
-            config_get("soul_impression_depth_max", 10),
-            "soul_impression_depth_max"
+            config_get("soul_impression_depth_max", 10), "soul_impression_depth_max"
         )
         ConfigValidator.validate_range_order(
             self._soul_impression_depth_min,
             self._soul_impression_depth_mid,
             self._soul_impression_depth_max,
-            "soul_impression_depth"
+            "soul_impression_depth",
         )
 
         # ExpressionDesire 参数 - 使用归一化值(0-1)
         self._soul_expression_desire_min = ConfigValidator.validate_positive_number(
-            config_get("soul_expression_desire_min", 0.0),
-            "soul_expression_desire_min",
-            max_value=1.0
+            config_get("soul_expression_desire_min", 0.0), "soul_expression_desire_min", max_value=1.0
         )
         self._soul_expression_desire_mid = ConfigValidator.validate_positive_number(
             soul_system_config.get("expression_desire_mid") or config_get("soul_expression_desire_mid", 0.5),
             "soul_expression_desire_mid",
-            max_value=1.0
+            max_value=1.0,
         )
         self._soul_expression_desire_max = ConfigValidator.validate_positive_number(
-            config_get("soul_expression_desire_max", 1.0),
-            "soul_expression_desire_max",
-            max_value=1.0
+            config_get("soul_expression_desire_max", 1.0), "soul_expression_desire_max", max_value=1.0
         )
         ConfigValidator.validate_range_order(
             self._soul_expression_desire_min,
             self._soul_expression_desire_mid,
             self._soul_expression_desire_max,
-            "soul_expression_desire"
+            "soul_expression_desire",
         )
 
         # Creativity 参数 - 使用归一化值(0-1)
         self._soul_creativity_min = ConfigValidator.validate_positive_number(
-            config_get("soul_creativity_min", 0.0),
-            "soul_creativity_min",
-            max_value=1.0
+            config_get("soul_creativity_min", 0.0), "soul_creativity_min", max_value=1.0
         )
         self._soul_creativity_mid = ConfigValidator.validate_positive_number(
             soul_system_config.get("creativity_mid") or config_get("soul_creativity_mid", 0.7),
             "soul_creativity_mid",
-            max_value=1.0
+            max_value=1.0,
         )
         self._soul_creativity_max = ConfigValidator.validate_positive_number(
-            config_get("soul_creativity_max", 1.0),
-            "soul_creativity_max",
-            max_value=1.0
+            config_get("soul_creativity_max", 1.0), "soul_creativity_max", max_value=1.0
         )
         ConfigValidator.validate_range_order(
-            self._soul_creativity_min,
-            self._soul_creativity_mid,
-            self._soul_creativity_max,
-            "soul_creativity"
+            self._soul_creativity_min, self._soul_creativity_mid, self._soul_creativity_max, "soul_creativity"
         )
 
     @property
@@ -399,17 +376,19 @@ class MemoryConfig:
     def note_inject_top_k(self) -> int:
         """获取注入笔记数量上限"""
         return self._note_inject_top_k
+
     @property
     def note_top_k(self) -> int:
         """获取统一注入Top-K配置值"""
         return self._note_top_k
+
     @property
     def enable_local_embedding(self) -> bool:
         """是否启用本地嵌入模型"""
         return self._enable_local_embedding
 
     @property
-    def conversation_scope_map(self) -> Dict[str, Any]:
+    def conversation_scope_map(self) -> dict[str, Any]:
         """会话ID到记忆分类域的映射表（原始值，校验由PluginContext负责）。"""
         return self._conversation_scope_map
 
@@ -420,32 +399,52 @@ class MemoryConfig:
 
     # 灵魂参数属性
     @property
-    def soul_recall_depth_min(self) -> int: return self._soul_recall_depth_min
-    @property
-    def soul_recall_depth_mid(self) -> int: return self._soul_recall_depth_mid
-    @property
-    def soul_recall_depth_max(self) -> int: return self._soul_recall_depth_max
+    def soul_recall_depth_min(self) -> int:
+        return self._soul_recall_depth_min
 
     @property
-    def soul_impression_depth_min(self) -> int: return self._soul_impression_depth_min
-    @property
-    def soul_impression_depth_mid(self) -> int: return self._soul_impression_depth_mid
-    @property
-    def soul_impression_depth_max(self) -> int: return self._soul_impression_depth_max
+    def soul_recall_depth_mid(self) -> int:
+        return self._soul_recall_depth_mid
 
     @property
-    def soul_expression_desire_min(self) -> float: return self._soul_expression_desire_min
-    @property
-    def soul_expression_desire_mid(self) -> float: return self._soul_expression_desire_mid
-    @property
-    def soul_expression_desire_max(self) -> float: return self._soul_expression_desire_max
+    def soul_recall_depth_max(self) -> int:
+        return self._soul_recall_depth_max
 
     @property
-    def soul_creativity_min(self) -> float: return self._soul_creativity_min
+    def soul_impression_depth_min(self) -> int:
+        return self._soul_impression_depth_min
+
     @property
-    def soul_creativity_mid(self) -> float: return self._soul_creativity_mid
+    def soul_impression_depth_mid(self) -> int:
+        return self._soul_impression_depth_mid
+
     @property
-    def soul_creativity_max(self) -> float: return self._soul_creativity_max
+    def soul_impression_depth_max(self) -> int:
+        return self._soul_impression_depth_max
+
+    @property
+    def soul_expression_desire_min(self) -> float:
+        return self._soul_expression_desire_min
+
+    @property
+    def soul_expression_desire_mid(self) -> float:
+        return self._soul_expression_desire_mid
+
+    @property
+    def soul_expression_desire_max(self) -> float:
+        return self._soul_expression_desire_max
+
+    @property
+    def soul_creativity_min(self) -> float:
+        return self._soul_creativity_min
+
+    @property
+    def soul_creativity_mid(self) -> float:
+        return self._soul_creativity_mid
+
+    @property
+    def soul_creativity_max(self) -> float:
+        return self._soul_creativity_max
 
     def get_config_value(self, key: str, default: Any = None) -> Any:
         """
@@ -460,7 +459,7 @@ class MemoryConfig:
         """
         return self.config.get(key, default)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典"""
         return {
             "min_message_length": self.min_message_length,

@@ -384,10 +384,9 @@ def test_rebuild_chunk_search_syncs_disk_before_rebuilding(tmp_path):
         service,
     )
     service._process_file_change = MethodType(
-        lambda self, relative_path, timestamp, update_search_index=False: added.append(
-            (relative_path, update_search_index)
-        )
-        or (1, {}),
+        lambda self, relative_path, timestamp, update_search_index=False: (
+            added.append((relative_path, update_search_index)) or (1, {})
+        ),
         service,
     )
 

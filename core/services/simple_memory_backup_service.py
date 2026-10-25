@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 from ...llm_memory.components.memory_sql_manager import MemorySqlManager
 
@@ -19,11 +19,9 @@ class SimpleMemoryBackupService:
         memory_sql_manager: MemorySqlManager,
         source: str,
         provider_id: str = "",
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         start_time = time.time()
-        self.logger.info(
-            f"[simple_backup] 开始备份 source={source} provider={provider_id or 'unknown'}"
-        )
+        self.logger.info(f"[simple_backup] 开始备份 source={source} provider={provider_id or 'unknown'}")
         self.logger.info("[simple_backup] 阶段=读取向量元数据")
 
         try:
@@ -31,9 +29,9 @@ class SimpleMemoryBackupService:
                 collection.get,
                 include=["metadatas", "documents"],
             )
-            ids: List[str] = list((result or {}).get("ids") or [])
-            metadatas: List[Dict] = list((result or {}).get("metadatas") or [])
-            documents: List[str] = list((result or {}).get("documents") or [])
+            ids: list[str] = list((result or {}).get("ids") or [])
+            metadatas: list[dict] = list((result or {}).get("metadatas") or [])
+            documents: list[str] = list((result or {}).get("documents") or [])
         except Exception as e:
             self.logger.error(
                 f"[simple_backup] 备份失败 source={source} error=读取向量记忆失败: {e}",
@@ -43,14 +41,10 @@ class SimpleMemoryBackupService:
         scanned = max(len(ids), len(metadatas), len(documents))
         self.logger.info(f"[simple_backup] 阶段=数据整理 scanned_raw={scanned}")
 
-        normalized_memories: List[Dict] = []
+        normalized_memories: list[dict] = []
         skipped_no_judgment = 0
         for idx in range(scanned):
-            meta: Dict = (
-                metadatas[idx]
-                if idx < len(metadatas) and isinstance(metadatas[idx], dict)
-                else {}
-            )
+            meta: dict = metadatas[idx] if idx < len(metadatas) and isinstance(metadatas[idx], dict) else {}
             doc_text = str(documents[idx] or "").strip() if idx < len(documents) else ""
             judgment = str(meta.get("judgment") or "").strip() or doc_text
             if not judgment:

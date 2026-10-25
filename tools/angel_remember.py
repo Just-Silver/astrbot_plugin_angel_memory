@@ -1,12 +1,13 @@
-from typing import List, Optional
+from dataclasses import dataclass, field
+
 from astrbot.api import FunctionTool
 from astrbot.api.event import AstrMessageEvent
-from dataclasses import dataclass, field
 
 try:
     from astrbot.api import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger(__name__)
 
 
@@ -26,9 +27,7 @@ class CoreMemoryRememberTool(FunctionTool):
                     "type": "string",
                     "enum": ["create", "update", "merge"],
                     "description": (
-                        "记忆动作。create=新增一条记忆；"
-                        "update=更新一条已有记忆；"
-                        "merge=把多条旧记忆合并为一条新记忆。"
+                        "记忆动作。create=新增一条记忆；update=更新一条已有记忆；merge=把多条旧记忆合并为一条新记忆。"
                     ),
                 },
                 "memory": {
@@ -87,7 +86,7 @@ class CoreMemoryRememberTool(FunctionTool):
         event: AstrMessageEvent,
         action: str,
         memory: dict,
-        source_memory_ids: Optional[List[str]] = None,
+        source_memory_ids: list[str] | None = None,
     ):
         action = str(action or "").strip().lower()
         source_memory_ids = source_memory_ids or []
@@ -141,7 +140,7 @@ class CoreMemoryRememberTool(FunctionTool):
 
         # --- 短 ID 翻译为完整 ID ---
         memory_sql_manager = plugin_context.get_component("memory_sql_manager")
-        resolved_source_ids: List[str] = []
+        resolved_source_ids: list[str] = []
         if source_memory_ids:
             if not memory_sql_manager:
                 return "错误：记忆管理器不可用，无法解析源记忆 ID。"
@@ -166,9 +165,7 @@ class CoreMemoryRememberTool(FunctionTool):
                 short_id = ""
                 if memory_sql_manager:
                     short_id = memory_sql_manager.get_short_id(str(memory_id))
-                self.logger.info(
-                    f"{self.name}: create 成功 short_id={short_id} judgment=「{judgment[:30]}」"
-                )
+                self.logger.info(f"{self.name}: create 成功 short_id={short_id} judgment=「{judgment[:30]}」")
                 return f"已记住：「{judgment}」（ID: {short_id or memory_id}）"
 
             elif action in ("update", "merge"):
@@ -206,10 +203,7 @@ class CoreMemoryRememberTool(FunctionTool):
                     f"{self.name}: {action} 成功 sources=[{source_display}] "
                     f"new_short_id={new_short_id} judgment=「{judgment[:30]}」"
                 )
-                return (
-                    f"已{verb}记忆 [{source_display}] → 新记忆「{judgment}」"
-                    f"（ID: {new_short_id or '已生成'}）"
-                )
+                return f"已{verb}记忆 [{source_display}] → 新记忆「{judgment}」（ID: {new_short_id or '已生成'}）"
 
         except Exception as e:
             self.logger.error(f"{self.name}: {action} 失败: {e}", exc_info=True)

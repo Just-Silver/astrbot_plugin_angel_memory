@@ -7,9 +7,7 @@ from __future__ import annotations
 import math
 import os
 import sqlite3
-import time
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from quart import jsonify, request
 
@@ -17,6 +15,7 @@ try:
     from astrbot.api import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger(__name__)
 
 
@@ -24,7 +23,7 @@ class MemoryAPI:
     def __init__(self, plugin_context):
         self.plugin_context = plugin_context
 
-    def _get_central_conn(self) -> Optional[sqlite3.Connection]:
+    def _get_central_conn(self) -> sqlite3.Connection | None:
         """获取中央记忆数据库连接"""
         path_manager = self.plugin_context.get_path_manager()
         db_path = str(path_manager.get_simple_memory_db_path())
@@ -88,7 +87,7 @@ class MemoryAPI:
     async def get_overview(self):
         """总览统计"""
         conn = self._get_central_conn()
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "provider_id": self.plugin_context.get_embedding_provider_id() or "(未配置)",
             "llm_provider_id": self.plugin_context.get_llm_provider_id() or "(未配置)",
             "has_providers": self.plugin_context.has_providers(),
@@ -125,7 +124,7 @@ class MemoryAPI:
             try:
                 for name in os.listdir(vector_path):
                     if name.endswith(".sqlite"):
-                        col_name = name[:-len(".sqlite")]
+                        col_name = name[: -len(".sqlite")]
                         if vector_backend == "faiss":
                             idx_path = os.path.join(vector_path, f"{col_name}.index")
                             if not os.path.exists(idx_path):
@@ -151,7 +150,7 @@ class MemoryAPI:
 
         try:
             where = []
-            params: List[Any] = []
+            params: list[Any] = []
 
             if scope.strip():
                 where.append("mr.memory_scope = ?")
@@ -203,26 +202,30 @@ class MemoryAPI:
             cur.execute(sql, list(params) + [page_size, offset])
             items = []
             for row in cur.fetchall():
-                items.append({
-                    "id": row["id"],
-                    "memory_type": row["memory_type"],
-                    "judgment": row["judgment"],
-                    "reasoning": row["reasoning"],
-                    "strength": row["strength"],
-                    "is_active": bool(row["is_active"]),
-                    "memory_scope": row["memory_scope"],
-                    "created_at": row["created_at"],
-                    "updated_at": row["updated_at"],
-                    "tags": row["tags"],
-                })
+                items.append(
+                    {
+                        "id": row["id"],
+                        "memory_type": row["memory_type"],
+                        "judgment": row["judgment"],
+                        "reasoning": row["reasoning"],
+                        "strength": row["strength"],
+                        "is_active": bool(row["is_active"]),
+                        "memory_scope": row["memory_scope"],
+                        "created_at": row["created_at"],
+                        "updated_at": row["updated_at"],
+                        "tags": row["tags"],
+                    }
+                )
 
-            return jsonify({
-                "items": items,
-                "total": total,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": math.ceil(total / page_size) if total > 0 else 1,
-            })
+            return jsonify(
+                {
+                    "items": items,
+                    "total": total,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": math.ceil(total / page_size) if total > 0 else 1,
+                }
+            )
         except Exception as e:
             return jsonify({"error": str(e), "items": [], "total": 0}), 500
         finally:
@@ -262,17 +265,19 @@ class MemoryAPI:
         try:
             for name in os.listdir(vector_path):
                 if name.endswith(".sqlite"):
-                    col_name = name[:-len(".sqlite")]
+                    col_name = name[: -len(".sqlite")]
                     if backend == "faiss":
                         idx_path = os.path.join(vector_path, f"{col_name}.index")
                         if not os.path.exists(idx_path):
                             continue
                     sidecar = os.path.join(vector_path, name)
-                    collections.append({
-                        "name": col_name,
-                        "count": self._count_vector_rows(sidecar, backend),
-                        "backend": backend or "unknown",
-                    })
+                    collections.append(
+                        {
+                            "name": col_name,
+                            "count": self._count_vector_rows(sidecar, backend),
+                            "backend": backend or "unknown",
+                        }
+                    )
         except Exception as e:
             return jsonify({"collections": [], "error": str(e)})
 
@@ -332,11 +337,13 @@ class MemoryAPI:
                 row = row_map.get(str(item_id))
                 if not row:
                     continue
-                results.append({
-                    "id": row["item_id"],
-                    "document": row["vector_text"],
-                    "score": float(score),
-                })
+                results.append(
+                    {
+                        "id": row["item_id"],
+                        "document": row["vector_text"],
+                        "score": float(score),
+                    }
+                )
 
             return jsonify({"results": results, "backend": backend or "unknown"})
 
@@ -382,21 +389,25 @@ class MemoryAPI:
 
             items = []
             for index, row in enumerate(rows):
-                items.append({
-                    "id": row["item_id"],
-                    "vector_id": int(row["vector_id"]) if "vector_id" in row.keys() else offset + index + 1,
-                    "document": row["vector_text"],
-                    "dimension": int(row["dimension"]),
-                    "updated_at": float(row["updated_at"] or 0),
-                    "backend": backend or "unknown",
-                })
+                items.append(
+                    {
+                        "id": row["item_id"],
+                        "vector_id": int(row["vector_id"]) if "vector_id" in row.keys() else offset + index + 1,
+                        "document": row["vector_text"],
+                        "dimension": int(row["dimension"]),
+                        "updated_at": float(row["updated_at"] or 0),
+                        "backend": backend or "unknown",
+                    }
+                )
 
-            return jsonify({
-                "items": items,
-                "total": total,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": math.ceil(total / page_size) if total > 0 else 1,
-            })
+            return jsonify(
+                {
+                    "items": items,
+                    "total": total,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": math.ceil(total / page_size) if total > 0 else 1,
+                }
+            )
         except Exception as e:
             return jsonify({"items": [], "total": 0, "error": str(e)}), 500

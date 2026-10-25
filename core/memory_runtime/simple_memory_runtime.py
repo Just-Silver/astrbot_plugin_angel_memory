@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ...llm_memory.components.memory_sql_manager import MemorySqlManager
 from ...llm_memory.models.data_models import BaseMemory
@@ -17,9 +17,9 @@ class SimpleMemoryRuntime:
         memory_type: str,
         judgment: str,
         reasoning: str,
-        tags: List[str],
+        tags: list[str],
         is_active: bool = False,
-        strength: Optional[int] = None,
+        strength: int | None = None,
         memory_scope: str = "public",
     ) -> str:
         memory = await self._manager.remember(
@@ -38,8 +38,8 @@ class SimpleMemoryRuntime:
         memory_type: str,
         query: str,
         limit: int = 10,
-        memory_scope: Optional[str] = None,
-    ) -> List[BaseMemory]:
+        memory_scope: str | None = None,
+    ) -> list[BaseMemory]:
         memories = await self._manager.recall_by_tags(
             query=query,
             limit=limit,
@@ -57,11 +57,11 @@ class SimpleMemoryRuntime:
     async def comprehensive_recall(
         self,
         query: str,
-        limit: Optional[int] = None,
+        limit: int | None = None,
         event: Any = None,
-        vector: Optional[List[float]] = None,
+        vector: list[float] | None = None,
         memory_scope: str = "public",
-    ) -> List[BaseMemory]:
+    ) -> list[BaseMemory]:
         limit = int(limit or 10)
         return await self._manager.recall_by_tags(
             query=query,
@@ -72,14 +72,16 @@ class SimpleMemoryRuntime:
     async def chained_recall(
         self,
         query: str,
-        entities: List[str],
+        entities: list[str],
         per_type_limit: int = 7,
-        final_limit: Optional[int] = None,
-        vector: Optional[List[float]] = None,
+        final_limit: int | None = None,
+        vector: list[float] | None = None,
         event: Any = None,
         memory_scope: str = "public",
-    ) -> List[BaseMemory]:
-        merged_query = " ".join([str(query or "").strip(), *[str(e).strip() for e in (entities or []) if str(e).strip()]]).strip()
+    ) -> list[BaseMemory]:
+        merged_query = " ".join(
+            [str(query or "").strip(), *[str(e).strip() for e in (entities or []) if str(e).strip()]]
+        ).strip()
         limit = int(final_limit or per_type_limit or 7)
         memories = await self._manager.recall_by_tags(
             query=merged_query,
@@ -90,9 +92,9 @@ class SimpleMemoryRuntime:
 
     async def get_memories_by_ids(
         self,
-        memory_ids: List[str],
-        memory_scope: Optional[str] = None,
-    ) -> List[BaseMemory]:
+        memory_ids: list[str],
+        memory_scope: str | None = None,
+    ) -> list[BaseMemory]:
         memories = await self._manager.get_memories_by_ids(memory_ids)
         return self._filter_and_order_memories(
             memories=memories,
@@ -102,11 +104,11 @@ class SimpleMemoryRuntime:
 
     async def feedback(
         self,
-        useful_memory_ids: Optional[List[str]] = None,
-        recalled_memory_ids: Optional[List[str]] = None,
-        memory_actions: Optional[List[dict]] = None,
+        useful_memory_ids: list[str] | None = None,
+        recalled_memory_ids: list[str] | None = None,
+        memory_actions: list[dict] | None = None,
         memory_scope: str = "public",
-    ) -> List[BaseMemory]:
+    ) -> list[BaseMemory]:
         return await self._manager.process_feedback(
             useful_memory_ids=useful_memory_ids,
             recalled_memory_ids=recalled_memory_ids,
@@ -117,14 +119,14 @@ class SimpleMemoryRuntime:
     async def decay_tier0_memories(self) -> int:
         return await self._manager.decay_tier0_memories()
 
-    async def list_retirement_candidates(self) -> List[BaseMemory]:
+    async def list_retirement_candidates(self) -> list[BaseMemory]:
         return await self._manager.list_retirement_candidates()
 
     async def apply_retirement_decisions(
         self,
-        delete_ids: List[str],
-        keep_ids: List[str],
-    ) -> Dict[str, int]:
+        delete_ids: list[str],
+        keep_ids: list[str],
+    ) -> dict[str, int]:
         return await self._manager.apply_retirement_decisions(
             delete_ids=delete_ids,
             keep_ids=keep_ids,
@@ -135,13 +137,13 @@ class SimpleMemoryRuntime:
 
     @staticmethod
     def _filter_and_order_memories(
-        memories: List[BaseMemory],
-        memory_ids: List[str],
-        memory_scope: Optional[str] = None,
-    ) -> List[BaseMemory]:
+        memories: list[BaseMemory],
+        memory_ids: list[str],
+        memory_scope: str | None = None,
+    ) -> list[BaseMemory]:
         scope = str(memory_scope or "").strip()
         memory_map = {str(mem.id): mem for mem in memories or [] if getattr(mem, "id", None)}
-        ordered: List[BaseMemory] = []
+        ordered: list[BaseMemory] = []
         seen = set()
         for raw_id in memory_ids or []:
             memory_id = str(raw_id or "").strip()

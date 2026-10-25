@@ -5,8 +5,6 @@
 所有记忆类型使用相同的三元组结构（judgment, reasoning, tags）。
 """
 
-from typing import List, Optional # 导入 Optional
-
 # 导入日志记录器
 try:
     from astrbot.api import logger
@@ -46,17 +44,19 @@ class MemoryHandler:
         self.memory_sql_manager = memory_sql_manager
         self.memory_index_collection = memory_index_collection
         self.logger = logger
-        from ..config.system_config import system_config as global_system_config # 导入全局配置
-        self.system_config = global_system_config
+        from ..config.system_config import (
+            system_config as global_system_config,  # 导入全局配置
+        )
 
+        self.system_config = global_system_config
 
     async def remember(
         self,
         judgment: str,
         reasoning: str,
-        tags: List[str],
+        tags: list[str],
         is_active: bool = False,
-        strength: Optional[int] = None,
+        strength: int | None = None,
         memory_scope: str = "public",
     ) -> BaseMemory:
         """
@@ -72,8 +72,10 @@ class MemoryHandler:
         Returns:
             创建的记忆对象
         """
-        actual_strength = strength if strength is not None else self.system_config.default_passive_strength # 获取实际强度
-        
+        actual_strength = (
+            strength if strength is not None else self.system_config.default_passive_strength
+        )  # 获取实际强度
+
         # 新架构：中央 SQL 为真相源，向量层仅做轻量索引。
         if self.memory_sql_manager is not None:
             memory = await self.memory_sql_manager.remember(
@@ -118,8 +120,8 @@ class MemoryHandler:
         query: str,
         limit: int = 10,
         similarity_threshold: float = 0.6,
-        memory_scope: Optional[str] = None,
-    ) -> List[BaseMemory]:
+        memory_scope: str | None = None,
+    ) -> list[BaseMemory]:
         """
         回忆相关记忆。
 
@@ -138,9 +140,7 @@ class MemoryHandler:
             if scope == "public":
                 clauses.append({"memory_scope": "public"})
             else:
-                clauses.append(
-                    {"$or": [{"memory_scope": scope}, {"memory_scope": "public"}]}
-                )
+                clauses.append({"$or": [{"memory_scope": scope}, {"memory_scope": "public"}]})
 
         # 新架构下 recall 统一走中央 SQL 的 tags 召回。
         if self.memory_sql_manager is not None:
@@ -154,7 +154,7 @@ class MemoryHandler:
                         similarity_threshold=0.0,
                     )
                     if id_scores:
-                        vector_scores = {mid: score for mid, score in id_scores}
+                        vector_scores = dict(id_scores)
                 except Exception as e:
                     self.logger.warning(f"记忆 recall 读取向量分失败，仅使用 FTS 候选: {e}")
             recalled = await self.memory_sql_manager.recall_by_tags(
@@ -164,7 +164,8 @@ class MemoryHandler:
                 vector_scores=vector_scores,
             )
             filtered = [
-                mem for mem in recalled
+                mem
+                for mem in recalled
                 if getattr(mem.memory_type, "value", str(mem.memory_type)) == self.memory_type.value
             ]
             return filtered

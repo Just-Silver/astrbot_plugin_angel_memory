@@ -6,12 +6,11 @@
 2. 从后往前保留500token
 """
 
-import re
-from typing import Set, Tuple, Optional, List
-from astrbot.api.event import AstrMessageEvent
 import json
+import re
 
 from astrbot.api import logger
+from astrbot.api.event import AstrMessageEvent
 
 
 class QueryProcessor:
@@ -50,7 +49,7 @@ class QueryProcessor:
 
         return rag_fields
 
-    def _extract_assistant_names(self, event: AstrMessageEvent) -> Set[str]:
+    def _extract_assistant_names(self, event: AstrMessageEvent) -> set[str]:
         """
         从事件中提取助理的所有名字和别名
 
@@ -93,7 +92,7 @@ class QueryProcessor:
 
         return names
 
-    def _filter_assistant_names(self, query: str, names: Set[str]) -> str:
+    def _filter_assistant_names(self, query: str, names: set[str]) -> str:
         """
         从查询中过滤掉助理名字和别名
 
@@ -211,7 +210,7 @@ class QueryProcessor:
             # 定义一个阈值，如果查询词已经很短，就不需要进一步过滤和截断
             # 这个阈值需要根据实际情况调整。考虑到RAG查询通常是高度精炼的关键词和实体，
             # 短于该阈值的RAG查询，我们认为它已经足够精准，无需额外处理。
-            PREPROCESS_THRESHOLD_CHARACTERS = 100 # 例如100个字符，可调整
+            PREPROCESS_THRESHOLD_CHARACTERS = 100  # 例如100个字符，可调整
 
             # 只有当rag_query非空且其长度小于阈值时，才跳过后续预处理
             if rag_query and len(final_query.strip()) <= PREPROCESS_THRESHOLD_CHARACTERS:
@@ -236,7 +235,7 @@ class QueryProcessor:
             # 返回原查询作为降级方案
             return original_query
 
-    async def _precompute_rag_vector(self, rag_query: str, event: AstrMessageEvent) -> Optional[List[float]]:
+    async def _precompute_rag_vector(self, rag_query: str, event: AstrMessageEvent) -> list[float] | None:
         """
         预计算RAG查询的向量
 
@@ -253,7 +252,8 @@ class QueryProcessor:
         # 从event中获取plugin_context
         # 假设event中包含plugin_context
         from ..plugin_context import PluginContext
-        plugin_context: Optional[PluginContext] = getattr(event, 'plugin_context', None)
+
+        plugin_context: PluginContext | None = getattr(event, "plugin_context", None)
 
         if plugin_context is None:
             self.logger.debug("无法从事件中获取plugin_context，跳过RAG向量预计算")
@@ -300,7 +300,9 @@ class QueryProcessor:
         # 笔记检索也使用统一的RAG字段处理逻辑
         return self.process_query(query, event)
 
-    async def process_query_for_memory_with_vector(self, query: str, event: AstrMessageEvent) -> Tuple[str, Optional[List[float]]]:
+    async def process_query_for_memory_with_vector(
+        self, query: str, event: AstrMessageEvent
+    ) -> tuple[str, list[float] | None]:
         """
         记忆检索的查询词处理（带向量预计算）
 
@@ -314,6 +316,7 @@ class QueryProcessor:
         processed_query = self.process_query_for_memory(query, event)
         vector = await self._precompute_rag_vector(processed_query, event)
         return processed_query, vector
+
 
 # 全局单例实例
 _query_processor_instance = None

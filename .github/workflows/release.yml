@@ -1,0 +1,146 @@
+name: Release
+
+# 发布流程（tag 驱动）：
+#   1. 在 fix/ 或 feat/ 分支上打预发布 tag（如 v1.6.17-beta.1），验证通过后安装测试；
+#   2. 验证 OK 后合并到 master，在 master 上打正式 tag（如 v1.6.17）。
+# 两条硬约束由本文件强制：
+#   - 预发布 tag 不得打在 master 上（否则等于跳过了 beta 验证）；
+#   - 正式 tag 必须在 master 上（否则等于绕过了合并）。
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+# tag 推送不会触发 ci.yml，因此发布只需按自身串行；不取消，避免发布中途被打断。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # 前置条件：跑与 CI 完全相同的检查。CI 的 push 只监听 branches，
+  # 因此 tag 推送不会触发 ci.yml，这里复用其 job 定义即可，不存在重复触发。
+  verify:
+    name: 前置检查
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: 发布
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: 解析并校验 tag
+        id: tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          tag="${REF_NAME#v}"
+          if ! python -c "import re,sys; sys.exit(0 if re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?', sys.argv[1]) else 1)" "$tag"; then
+            echo "::error::tag '$REF_NAME' 不符合 v<major>.<minor>.<patch>[-prerelease] 格式"
+            exit 1
+          fi
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+          echo "base=${tag%%-*}" >> "$GITHUB_OUTPUT"
+          if [ "$tag" != "${tag%%-*}" ]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 校验发布位置（beta 在分支 / 正式版在 master）
+        env:
+          IS_PRERELEASE: ${{ steps.tag.outputs.prerelease }}
+        run: |
+          git fetch --no-tags --quiet origin master
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            on_master=true
+          else
+            on_master=false
+          fi
+          if [ "$IS_PRERELEASE" = "true" ] && [ "$on_master" = "true" ]; then
+            echo "::error::预发布 tag 必须打在 fix/ 或 feat/ 分支上，不能直接打 master；请先在分支发 beta 验证"
+            exit 1
+          fi
+          if [ "$IS_PRERELEASE" = "false" ] && [ "$on_master" = "false" ]; then
+            echo "::error::正式版本 tag 必须打在 master 上；请先合并经过 beta 验证的分支"
+            exit 1
+          fi
+          echo "发布位置校验通过（prerelease=$IS_PRERELEASE on_master=$on_master）"
+
+      - name: 校验版本一致性
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+          BASE_VERSION: ${{ steps.tag.outputs.base }}
+        run: |
+          python - <<'PY'
+          import os, re, sys
+
+          version = os.environ["VERSION"]
+          base = os.environ["BASE_VERSION"]
+
+          with open("metadata.yaml", encoding="utf-8") as f:
+              meta = re.search(r"^version:\s*(\S+)", f.read(), re.M)
+          if not meta:
+              sys.exit("metadata.yaml 缺少 version 字段")
+          if meta.group(1) != version:
+              sys.exit(f"版本不一致：tag={version} metadata.yaml={meta.group(1)}")
+
+          with open("CHANGELOG.md", encoding="utf-8") as f:
+              changelog = f.read()
+          if not re.search(rf"^##\s*\[{re.escape(base)}\]", changelog, re.M):
+              sys.exit(f"CHANGELOG.md 缺少 ## [{base}] 小节")
+
+          print(f"版本一致性通过：tag={version} metadata={version} changelog={base}")
+          PY
+
+      - name: 提取发布说明
+        env:
+          BASE_VERSION: ${{ steps.tag.outputs.base }}
+        run: |
+          python - <<'PY'
+          import os, re
+
+          base = os.environ["BASE_VERSION"]
+          with open("CHANGELOG.md", encoding="utf-8") as f:
+              lines = f.read().splitlines()
+
+          start = next(
+              i for i, line in enumerate(lines)
+              if re.match(rf"^##\s*\[{re.escape(base)}\]", line)
+          )
+          body = []
+          for line in lines[start + 1:]:
+              if re.match(r"^##\s", line):
+                  break
+              body.append(line)
+
+          notes = "\n".join(body).strip()
+          if not notes:
+              notes = f"版本 {base}"
+          with open("release-notes.md", "w", encoding="utf-8") as f:
+              f.write(notes + "\n")
+          print(notes)
+          PY
+
+      - name: 创建 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          IS_PRERELEASE: ${{ steps.tag.outputs.prerelease }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          args=(release create "$REF_NAME" --title "v${VERSION}" --notes-file release-notes.md)
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            args+=(--prerelease)
+            echo "以预发布形式发布 v${VERSION}"
+          else
+            args+=(--latest)
+            echo "以正式版本发布 v${VERSION}"
+          fi
+          gh "${args[@]}"

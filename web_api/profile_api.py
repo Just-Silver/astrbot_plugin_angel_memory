@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from quart import jsonify, request
 
@@ -18,6 +18,7 @@ try:
     from astrbot.api import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger(__name__)
 
 from ..llm_memory.utils.user_profile import (
@@ -26,7 +27,6 @@ from ..llm_memory.utils.user_profile import (
     extract_user_ids_from_tags,
     is_user_id_tag,
     is_user_profile_tags,
-    normalize_tags,
 )
 
 
@@ -34,7 +34,7 @@ class ProfileAPI:
     def __init__(self, plugin_context):
         self.plugin_context = plugin_context
 
-    def _get_central_conn(self) -> Optional[sqlite3.Connection]:
+    def _get_central_conn(self) -> sqlite3.Connection | None:
         path_manager = self.plugin_context.get_path_manager()
         db_path = str(path_manager.get_simple_memory_db_path())
         if not os.path.exists(db_path):
@@ -108,14 +108,16 @@ class ProfileAPI:
                     names = []
                 if not isinstance(names, list):
                     names = []
-                ledger_users.append({
-                    "platform": platform,
-                    "user_id": user_id,
-                    "nickname": names[-1] if names else "",
-                    "nicknames": names,
-                    "first_seen_at": row["first_seen_at"],
-                    "last_seen_at": row["last_seen_at"],
-                })
+                ledger_users.append(
+                    {
+                        "platform": platform,
+                        "user_id": user_id,
+                        "nickname": names[-1] if names else "",
+                        "nicknames": names,
+                        "first_seen_at": row["first_seen_at"],
+                        "last_seen_at": row["last_seen_at"],
+                    }
+                )
 
             groups = [
                 {
@@ -132,7 +134,7 @@ class ProfileAPI:
             known_user_ids = [u["user_id"] for u in ledger_users]
 
             # 用统一的识别函数分组
-            user_data: Dict[str, Dict[str, Any]] = {}
+            user_data: dict[str, dict[str, Any]] = {}
             for row in rows:
                 tags_text = str(row["tags_text"] or "")
                 tag_list = [t.strip() for t in tags_text.split(",") if t.strip()]
@@ -159,9 +161,7 @@ class ProfileAPI:
                     # 属性统计
                     attr = extract_profile_attribute_from_tags(tag_list)
                     if attr:
-                        user_data[user_id]["attributes"][attr] = (
-                            user_data[user_id]["attributes"].get(attr, 0) + 1
-                        )
+                        user_data[user_id]["attributes"][attr] = user_data[user_id]["attributes"].get(attr, 0) + 1
 
                     # 提取昵称（非用户ID、非属性标签的第一个标签）
                     # 排除 ID 时带上账本锚点，避免字母型 ID（如 weixin_oc_adapter）被形态兜底误判为非 ID
@@ -204,9 +204,7 @@ class ProfileAPI:
         try:
             cur = conn.cursor()
             # 获取该用户标签 ID
-            user_tag_row = cur.execute(
-                "SELECT id FROM global_tags WHERE name = ?", (user_id,)
-            ).fetchone()
+            user_tag_row = cur.execute("SELECT id FROM global_tags WHERE name = ?", (user_id,)).fetchone()
             if not user_tag_row:
                 return jsonify({"user_id": user_id, "memories": []})
 
@@ -241,18 +239,20 @@ class ProfileAPI:
 
                 attr_type = extract_profile_attribute_from_tags(tag_list)
 
-                memories.append({
-                    "id": row["id"],
-                    "attribute": attr_type,
-                    "judgment": row["judgment"],
-                    "reasoning": row["reasoning"],
-                    "strength": row["strength"],
-                    "is_active": bool(row["is_active"]),
-                    "memory_scope": row["memory_scope"],
-                    "created_at": row["created_at"],
-                    "updated_at": row["updated_at"],
-                    "tags": tags_text,
-                })
+                memories.append(
+                    {
+                        "id": row["id"],
+                        "attribute": attr_type,
+                        "judgment": row["judgment"],
+                        "reasoning": row["reasoning"],
+                        "strength": row["strength"],
+                        "is_active": bool(row["is_active"]),
+                        "memory_scope": row["memory_scope"],
+                        "created_at": row["created_at"],
+                        "updated_at": row["updated_at"],
+                        "tags": tags_text,
+                    }
+                )
 
             return jsonify({"user_id": user_id, "memories": memories})
         except Exception as e:

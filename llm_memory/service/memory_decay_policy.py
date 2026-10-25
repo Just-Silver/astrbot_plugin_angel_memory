@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict
 import logging
+from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -50,14 +50,12 @@ class MemoryDecayPolicy:
 
     def tier0_decay_cycle_days(self) -> int:
         base = max(1.0, float(self.config.cycle_tier0_days))
-        speed = max(0.01, float(self.config.forget_speed)) * max(
-            0.01, float(self.config.tier0_forget_speed)
-        )
+        speed = max(0.01, float(self.config.forget_speed)) * max(0.01, float(self.config.tier0_forget_speed))
         adjusted = int(round(base / speed))
         return max(1, adjusted)
 
 
-def build_decay_config(plugin_config: Dict[str, Any] | None) -> MemoryDecayConfig:
+def build_decay_config(plugin_config: dict[str, Any] | None) -> MemoryDecayConfig:
     """
     从插件配置构建衰减参数。
 
@@ -112,7 +110,5 @@ def build_decay_config(plugin_config: Dict[str, Any] | None) -> MemoryDecayConfi
         ),
         cycle_tier0_days=max(1, _to_int("cycle_tier0_days", defaults.cycle_tier0_days)),
         forget_speed=max(0.01, _to_float("forget_speed", defaults.forget_speed)),
-        tier0_forget_speed=max(
-            0.01, _to_float("tier0_forget_speed", defaults.tier0_forget_speed)
-        ),
+        tier0_forget_speed=max(0.01, _to_float("tier0_forget_speed", defaults.tier0_forget_speed)),
     )

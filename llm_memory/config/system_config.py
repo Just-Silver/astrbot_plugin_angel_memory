@@ -4,9 +4,8 @@
 
 import os
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional
 from pathlib import Path
-
+from typing import Any
 
 # 记忆系统常量
 KNOWLEDGE_CORE_SEPARATOR = ", "  # 用于连接 judgment 和 tags 的分隔符
@@ -17,11 +16,7 @@ class MemorySystemConfig:
     """记忆系统配置类"""
 
     # 嵌入模型
-    embedding_model: str = field(
-        default_factory=lambda: os.getenv(
-            "MEMORY_EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5"
-        )
-    )
+    embedding_model: str = field(default_factory=lambda: os.getenv("MEMORY_EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5"))
 
     # 嵌入式模型提供商ID
     astrbot_embedding_provider_id: str = field(
@@ -29,11 +24,7 @@ class MemorySystemConfig:
     )
 
     # 集合名称配置
-    collection_name: str = field(
-        default_factory=lambda: os.getenv(
-            "MEMORY_COLLECTION_NAME", "personal_memory_v1"
-        )
-    )
+    collection_name: str = field(default_factory=lambda: os.getenv("MEMORY_COLLECTION_NAME", "personal_memory_v1"))
 
     # 注意：storage_dir 和 index_dir 应该从 PathManager 实例获取（在设置供应商后）
     # 这里不再设置默认值，由外部传入或通过 PathManager 动态获取
@@ -41,20 +32,14 @@ class MemorySystemConfig:
     index_dir: Path = field(default=None)
 
     # 阈值配置
-    strength_threshold: int = field(
-        default_factory=lambda: int(os.getenv("MEMORY_STRENGTH_THRESHOLD", "2"))
-    )
+    strength_threshold: int = field(default_factory=lambda: int(os.getenv("MEMORY_STRENGTH_THRESHOLD", "2")))
 
     # 检索限制
-    default_recall_limit: int = field(
-        default_factory=lambda: int(os.getenv("MEMORY_DEFAULT_RECALL_LIMIT", "10"))
-    )
+    default_recall_limit: int = field(default_factory=lambda: int(os.getenv("MEMORY_DEFAULT_RECALL_LIMIT", "10")))
 
     # 巩固间隔（小时）
     consolidation_interval_hours: int = field(
-        default_factory=lambda: int(
-            os.getenv("MEMORY_CONSOLIDATION_INTERVAL_HOURS", "24")
-        )
+        default_factory=lambda: int(os.getenv("MEMORY_CONSOLIDATION_INTERVAL_HOURS", "24"))
     )
 
     # 被动记忆默认强度
@@ -76,7 +61,7 @@ class MemorySystemConfig:
         if self.consolidation_interval_hours < 1:
             raise ValueError("consolidation_interval_hours 必须 >= 1")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典"""
         return {
             "embedding_model": self.embedding_model,
@@ -90,7 +75,7 @@ class MemorySystemConfig:
         }
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> "MemorySystemConfig":
+    def from_dict(cls, config_dict: dict[str, Any]) -> "MemorySystemConfig":
         """从字典创建配置"""
         config_dict = dict(config_dict)
         # 兼容历史废弃字段，避免旧配置反序列化时报错
@@ -109,7 +94,7 @@ class MemorySystemConfig:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.index_dir.mkdir(parents=True, exist_ok=True)
 
-    def get_database_path(self, provider_id: Optional[str] = None) -> Path:
+    def get_database_path(self, provider_id: str | None = None) -> Path:
         """
         获取向量索引路径
 

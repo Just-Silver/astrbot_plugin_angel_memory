@@ -4,18 +4,19 @@ angel_recall - 统一检索工具
 一次调用同时检索记忆和笔记切片，合并返回。
 """
 
-from typing import List
-from astrbot.api import FunctionTool
-from astrbot.api.event import AstrMessageEvent
 from dataclasses import dataclass, field
 
-from ..llm_memory.models.data_models import BaseMemory
+from astrbot.api import FunctionTool
+from astrbot.api.event import AstrMessageEvent
+
 from ..core.utils.memory_formatter import MemoryFormatter
+from ..llm_memory.models.data_models import BaseMemory
 
 try:
     from astrbot.api import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger(__name__)
 
 
@@ -67,11 +68,11 @@ class CoreMemoryRecallTool(FunctionTool):
             self.logger.error(f"{self.name}: 获取上下文失败: {e}")
             return "错误：无法确定当前会话，检索已拒绝。"
 
-        parts: List[str] = []
+        parts: list[str] = []
 
         # === 记忆检索 ===
         try:
-            all_memories: List[BaseMemory] = await memory_runtime.comprehensive_recall(
+            all_memories: list[BaseMemory] = await memory_runtime.comprehensive_recall(
                 query=query,
                 limit=50,
                 event=event,
@@ -81,9 +82,7 @@ class CoreMemoryRecallTool(FunctionTool):
 
             if all_active:
                 memory_sql_manager = plugin_context.get_component("memory_sql_manager")
-                memory_text = MemoryFormatter.format_session_memories(
-                    all_active, short_id_registry=memory_sql_manager
-                )
+                memory_text = MemoryFormatter.format_session_memories(all_active, short_id_registry=memory_sql_manager)
                 parts.append(f"[记忆检索结果 ({len(all_active)}条)]\n{memory_text}")
             else:
                 parts.append("[记忆检索结果]\n无相关记忆。")
@@ -116,8 +115,7 @@ class CoreMemoryRecallTool(FunctionTool):
                         note_lines.append(header + "\n" + "\n".join(chunk_previews))
                     parts.append(
                         f"[笔记检索结果 ({len(aggregated)}个文件)]\n"
-                        "[展开正文: angel_note_read(note_short_id, offset, limit)]\n\n"
-                        + "\n\n".join(note_lines)
+                        "[展开正文: angel_note_read(note_short_id, offset, limit)]\n\n" + "\n\n".join(note_lines)
                     )
                 else:
                     parts.append("[笔记检索结果]\n无相关笔记。")
@@ -130,9 +128,10 @@ class CoreMemoryRecallTool(FunctionTool):
         return "\n\n".join(parts)
 
     @staticmethod
-    def _aggregate_by_file(note_results: List[dict]) -> List[dict]:
+    def _aggregate_by_file(note_results: list[dict]) -> list[dict]:
         """将切片搜索结果按文件聚合"""
         from collections import OrderedDict
+
         file_map: OrderedDict = OrderedDict()
         for note in note_results:
             metadata = note.get("metadata", {})
@@ -145,17 +144,20 @@ class CoreMemoryRecallTool(FunctionTool):
                     "short_id": int(metadata.get("note_short_id", -1)),
                     "chunks": [],
                 }
-            file_map[path]["chunks"].append({
-                "line_start": int(metadata.get("line_start", 0)),
-                "line_end": int(metadata.get("line_end", 0)),
-                "content": str(note.get("content") or "").replace("\n", " "),
-            })
+            file_map[path]["chunks"].append(
+                {
+                    "line_start": int(metadata.get("line_start", 0)),
+                    "line_end": int(metadata.get("line_end", 0)),
+                    "content": str(note.get("content") or "").replace("\n", " "),
+                }
+            )
         return list(file_map.values())
 
     @staticmethod
-    def _precise_filter(note_results: List[dict], query: str) -> List[dict]:
+    def _precise_filter(note_results: list[dict], query: str) -> list[dict]:
         """精准过滤：content 必须包含原始查询词（按空格/|拆词，至少命中一个完整词）"""
         import re
+
         normalized = query.strip().lower()
         terms = [t.strip() for t in re.split(r"\s*\|\s*|\s+", normalized) if t.strip()]
         if not terms:

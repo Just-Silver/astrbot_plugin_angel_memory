@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from typing import Dict
 
 from ...llm_memory.components.memory_sql_manager import MemorySqlManager
 from ...llm_memory.service.cognitive_service import CognitiveService
@@ -18,31 +17,36 @@ class MemoryVectorSyncService:
         cognitive_service: CognitiveService,
         memory_sql_manager: MemorySqlManager,
         provider_id: str = "",
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         start_time = time.time()
         backend_name = getattr(cognitive_service.vector_store, "backend_name", "vector")
         self.logger.info(
-            f"[向量索引] 开始 任务名=记忆索引同步 backend={backend_name} "
-            f"provider_id={provider_id or 'unknown'}"
+            f"[向量索引] 开始 任务名=记忆索引同步 backend={backend_name} provider_id={provider_id or 'unknown'}"
         )
 
         try:
             sql_index_rows = await memory_sql_manager.list_memory_index_rows()
         except Exception as e:
             self.logger.error(
-                f"[向量索引] 失败 任务名=记忆索引同步 backend={backend_name} "
-                f"阶段=读取中央记忆索引 异常={e}",
+                f"[向量索引] 失败 任务名=记忆索引同步 backend={backend_name} 阶段=读取中央记忆索引 异常={e}",
                 exc_info=True,
             )
-            return {"sql_total": 0, "vector_total": 0, "missing": 0, "orphan": 0, "migrated": 0, "deleted": 0, "failed": 1}
+            return {
+                "sql_total": 0,
+                "vector_total": 0,
+                "missing": 0,
+                "orphan": 0,
+                "migrated": 0,
+                "deleted": 0,
+                "failed": 1,
+            }
 
         index_collection = cognitive_service.memory_index_collection
         try:
             result = await index_collection.sync_rows(sql_index_rows)
         except Exception as e:
             self.logger.error(
-                f"[向量索引] 失败 任务名=记忆索引同步 backend={backend_name} "
-                f"阶段=同步向量索引 异常={e}",
+                f"[向量索引] 失败 任务名=记忆索引同步 backend={backend_name} 阶段=同步向量索引 异常={e}",
                 exc_info=True,
             )
             return {

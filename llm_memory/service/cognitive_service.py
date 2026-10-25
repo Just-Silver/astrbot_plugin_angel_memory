@@ -5,8 +5,6 @@
 为每种记忆类型提供专门的接口，同时支持跨记忆类型的复杂查询。
 """
 
-from typing import List, Optional, Dict, Any
-
 # 导入日志记录器
 try:
     from astrbot.api import logger
@@ -15,10 +13,9 @@ except ImportError:
 
     logger = logging.getLogger(__name__)
 from ..models.data_models import BaseMemory
-from ..config.system_config import system_config
+from .memory_decay_policy import MemoryDecayConfig
 from .memory_handlers import MemoryHandlerFactory
 from .memory_manager import MemoryManager
-from .memory_decay_policy import MemoryDecayConfig
 
 
 class CognitiveService:
@@ -58,11 +55,7 @@ class CognitiveService:
         # 当前中央库为真相源，向量后端仅维护轻量召回索引；旧主集合不再创建。
         self.main_collection = None
         # 轻量记忆索引集合（仅 id + vector_text + embedding）
-        self.memory_index_collection = (
-            self.vector_store.get_or_create_collection_with_dimension_check(
-                "memory_index"
-            )
-        )
+        self.memory_index_collection = self.vector_store.get_or_create_collection_with_dimension_check("memory_index")
 
         # 创建记忆处理器工厂
         self.memory_handler_factory = MemoryHandlerFactory(
@@ -82,9 +75,7 @@ class CognitiveService:
         )
 
         # 记录初始化状态以验证向量索引
-        self.logger.info(
-            f"认知服务初始化完成。向量索引: {self.vector_store.client}"
-        )
+        self.logger.info(f"认知服务初始化完成。向量索引: {self.vector_store.client}")
 
     # ===== 存储管理接口 =====
 
@@ -110,9 +101,7 @@ class CognitiveService:
             # 如果需要更新路径，应该通过外部调用 PathManager 的方法
 
             self.logger.info(f"记忆系统存储路径已更新到: {new_path}")
-            self.logger.warning(
-                "注意：system_config.index_dir 未更新，请通过 PathManager 更新路径"
-            )
+            self.logger.warning("注意：system_config.index_dir 未更新，请通过 PathManager 更新路径")
 
         except Exception as e:
             self.logger.error(f"更新存储路径失败: {e}")
@@ -125,9 +114,9 @@ class CognitiveService:
         memory_type: str,
         judgment: str,
         reasoning: str,
-        tags: List[str],
+        tags: list[str],
         is_active: bool = False,
-        strength: Optional[int] = None,
+        strength: int | None = None,
         memory_scope: str = "public",
     ) -> str:
         """
@@ -145,9 +134,7 @@ class CognitiveService:
             创建的记忆ID
         """
         handler = self.memory_handler_factory.get_handler(memory_type)
-        memory = await handler.remember(
-            judgment, reasoning, tags, is_active, strength, memory_scope
-        )
+        memory = await handler.remember(judgment, reasoning, tags, is_active, strength, memory_scope)
         return memory.id
 
     async def recall(
@@ -155,8 +142,8 @@ class CognitiveService:
         memory_type: str,
         query: str,
         limit: int = 10,
-        memory_scope: Optional[str] = None,
-    ) -> List[BaseMemory]:
+        memory_scope: str | None = None,
+    ) -> list[BaseMemory]:
         """
         回忆记忆。
 
@@ -169,9 +156,7 @@ class CognitiveService:
             记忆列表
         """
         handler = self.memory_handler_factory.get_handler(memory_type)
-        return await handler.recall(
-            query, limit, memory_scope=memory_scope
-        )
+        return await handler.recall(query, limit, memory_scope=memory_scope)
 
     # ===== 高级记忆功能 =====
 
@@ -180,9 +165,9 @@ class CognitiveService:
         query: str,
         limit: int = None,
         event=None,
-        vector: Optional[List[float]] = None,
+        vector: list[float] | None = None,
         memory_scope: str = "public",
-    ) -> List[BaseMemory]:
+    ) -> list[BaseMemory]:
         """执行统一记忆检索。"""
         return await self.memory_manager.comprehensive_recall(
             query=query,
@@ -196,15 +181,15 @@ class CognitiveService:
         """睡眠第一步：T0 时间衰减（只降强度，不删除）"""
         return await self.memory_manager.decay_tier0_memories()
 
-    async def list_retirement_candidates(self) -> List[BaseMemory]:
+    async def list_retirement_candidates(self) -> list[BaseMemory]:
         """睡眠第二步：取出强度归零、等待裁决的被动记忆"""
         return await self.memory_manager.list_retirement_candidates()
 
     async def apply_retirement_decisions(
         self,
-        delete_ids: List[str],
-        keep_ids: List[str],
-    ) -> Dict[str, int]:
+        delete_ids: list[str],
+        keep_ids: list[str],
+    ) -> dict[str, int]:
         """睡眠第三步：按裁决执行删除与永久化"""
         return await self.memory_manager.apply_retirement_decisions(
             delete_ids,
@@ -214,13 +199,13 @@ class CognitiveService:
     async def chained_recall(
         self,
         query: str,
-        entities: List[str],
+        entities: list[str],
         per_type_limit: int = 7,
-        final_limit: Optional[int] = None,
-        vector: Optional[List[float]] = None,
+        final_limit: int | None = None,
+        vector: list[float] | None = None,
         event=None,
         memory_scope: str = "public",
-    ) -> List[BaseMemory]:
+    ) -> list[BaseMemory]:
         """链式多通道回忆 - 基于关联网络的多轮回忆
 
         Args:
@@ -232,10 +217,10 @@ class CognitiveService:
             event: 消息事件
         """
         return await self.memory_manager.chained_recall(
-            query=query, 
-            entities=entities, 
-            per_type_limit=per_type_limit, 
-            final_limit=final_limit, 
+            query=query,
+            entities=entities,
+            per_type_limit=per_type_limit,
+            final_limit=final_limit,
             vector=vector,
             event=event,
             memory_scope=memory_scope,
@@ -243,9 +228,9 @@ class CognitiveService:
 
     async def get_memories_by_ids(
         self,
-        memory_ids: List[str],
-        memory_scope: Optional[str] = None,
-    ) -> List[BaseMemory]:
+        memory_ids: list[str],
+        memory_scope: str | None = None,
+    ) -> list[BaseMemory]:
         """按 ID 批量读取长期记忆真相源。"""
         ids = [str(mid).strip() for mid in (memory_ids or []) if str(mid).strip()]
         if not ids:
@@ -254,12 +239,8 @@ class CognitiveService:
         if self.memory_sql_manager is not None:
             memories = await self.memory_sql_manager.get_memories_by_ids(ids)
             scope = str(memory_scope or "").strip()
-            memory_map = {
-                str(memory.id): memory
-                for memory in memories or []
-                if getattr(memory, "id", None)
-            }
-            ordered: List[BaseMemory] = []
+            memory_map = {str(memory.id): memory for memory in memories or [] if getattr(memory, "id", None)}
+            ordered: list[BaseMemory] = []
             seen = set()
             for memory_id in ids:
                 if memory_id in seen:
@@ -269,9 +250,7 @@ class CognitiveService:
                 if memory is None:
                     continue
                 if scope:
-                    mem_scope = str(
-                        getattr(memory, "memory_scope", "public") or "public"
-                    ).strip()
+                    mem_scope = str(getattr(memory, "memory_scope", "public") or "public").strip()
                     if scope == "public":
                         if mem_scope != "public":
                             continue
@@ -285,7 +264,7 @@ class CognitiveService:
                 result = self.main_collection.get(ids=ids, include=["metadatas"])
                 result_ids = [str(mid) for mid in (result.get("ids") or [])]
                 metadatas = result.get("metadatas") or []
-                memories_by_id: Dict[str, BaseMemory] = {}
+                memories_by_id: dict[str, BaseMemory] = {}
                 for memory_id, metadata in zip(result_ids, metadatas):
                     if not isinstance(metadata, dict):
                         continue
@@ -302,9 +281,7 @@ class CognitiveService:
                     if memory is None:
                         continue
                     if scope:
-                        mem_scope = str(
-                            getattr(memory, "memory_scope", "public") or "public"
-                        ).strip()
+                        mem_scope = str(getattr(memory, "memory_scope", "public") or "public").strip()
                         if scope == "public":
                             if mem_scope != "public":
                                 continue
@@ -319,11 +296,11 @@ class CognitiveService:
 
     async def feedback(
         self,
-        useful_memory_ids: List[str] = None,
-        recalled_memory_ids: List[str] = None,
-        memory_actions: List[dict] = None,
+        useful_memory_ids: list[str] = None,
+        recalled_memory_ids: list[str] = None,
+        memory_actions: list[dict] = None,
         memory_scope: str = "public",
-    ) -> List[BaseMemory]:
+    ) -> list[BaseMemory]:
         """统一反馈接口 - 处理回忆后的反馈（核心工作流）"""
         memory_handlers = self.memory_handler_factory.handlers
         return await self.memory_manager.process_feedback(

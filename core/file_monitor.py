@@ -6,7 +6,6 @@
 
 import os
 from pathlib import Path
-from typing import Dict, List, Union
 
 try:
     from astrbot.api import logger
@@ -21,9 +20,7 @@ from ..llm_memory.service.note_service import NoteService
 class FileMonitorService:
     """文件扫描服务类"""
 
-    def __init__(
-        self, data_directory: str, note_service: NoteService, config: dict = None
-    ):
+    def __init__(self, data_directory: str, note_service: NoteService, config: dict = None):
         """
         初始化文件扫描服务
 
@@ -44,16 +41,12 @@ class FileMonitorService:
 
         # 文件扫描状态统一使用中央真相源（global）。
         # 若复用 NoteService 的共享 file_manager，清理阶段不得关闭它。
-        if hasattr(note_service, "id_service") and hasattr(
-            note_service.id_service, "file_manager"
-        ):
+        if hasattr(note_service, "id_service") and hasattr(note_service.id_service, "file_manager"):
             self.file_index_manager = note_service.id_service.file_manager
             self._owns_file_index_manager = False
         else:
             # 兜底：避免因注入异常导致监控器不可用
-            self.file_index_manager = FileIndexManager(
-                str(path_manager.get_memory_center_index_dir()), "global"
-            )
+            self.file_index_manager = FileIndexManager(str(path_manager.get_memory_center_index_dir()), "global")
             self._owns_file_index_manager = True
 
         # 确保raw目录存在
@@ -116,7 +109,6 @@ class FileMonitorService:
         """已废弃：向量索引空间回收由FAISS重建流程处理。"""
         self.logger.debug("已跳过向量索引VACUUM操作（由FAISS重建流程处理）")
         return
-
 
     def _format_timing_log(self, timings: dict) -> str:
         """格式化计时信息为日志字符串（中央索引链路）"""
@@ -201,9 +193,7 @@ class FileMonitorService:
             # 5. 执行新增/更新操作（顺序处理，降低文件索引抖动）
             add_count = 0
             if changes["to_add"]:
-                self.logger.info(
-                    f"开始顺序处理 {len(changes['to_add'])} 个新增/更新文件..."
-                )
+                self.logger.info(f"开始顺序处理 {len(changes['to_add'])} 个新增/更新文件...")
 
                 # 顺序处理每个文件
                 for idx, (relative_path, timestamp) in enumerate(changes["to_add"]):
@@ -233,9 +223,7 @@ class FileMonitorService:
                         # 每100个文件显示进度
                         if (idx + 1) % 100 == 0:
                             progress = (idx + 1) / len(changes["to_add"]) * 100
-                            self.logger.info(
-                                f"📊 进度: {progress:.1f}% ({idx + 1}/{len(changes['to_add'])})"
-                            )
+                            self.logger.info(f"📊 进度: {progress:.1f}% ({idx + 1}/{len(changes['to_add'])})")
 
                     except Exception as e:
                         self.logger.error(f"处理文件失败: {relative_path}, 错误: {e}")
@@ -275,9 +263,7 @@ class FileMonitorService:
         chunks = chunk_store.list_all_chunks()
         indexed = chunk_search.rebuild_all(chunks)
         cost_ms = int((time.time() - start) * 1000)
-        self.logger.info(
-            f"[切片搜索索引] 全量重建完成 切片数={len(chunks)} 写入={indexed} 耗时毫秒={cost_ms}"
-        )
+        self.logger.info(f"[切片搜索索引] 全量重建完成 切片数={len(chunks)} 写入={indexed} 耗时毫秒={cost_ms}")
 
     def _sync_note_indexes_with_disk(self) -> None:
         """重建搜索索引前，先让注册表、切片库、文件索引与磁盘实际状态对齐。"""
@@ -332,7 +318,7 @@ class FileMonitorService:
         except Exception as e:
             self.logger.error(f"[文件索引] 笔记派生索引清空失败: {e}", exc_info=True)
 
-    def _scan_directory_for_files(self, directory_path: Path) -> Dict[str, int]:
+    def _scan_directory_for_files(self, directory_path: Path) -> dict[str, int]:
         """
         扫描目录，获取所有支持的文件及其时间戳（优化版，使用os.walk）
 
@@ -376,19 +362,13 @@ class FileMonitorService:
 
                             # 计算相对路径（字符串切片，比Path.relative_to快）
                             if full_path.startswith(base_path):
-                                relative_path = full_path[base_path_len:].replace(
-                                    "\\", "/"
-                                )
+                                relative_path = full_path[base_path_len:].replace("\\", "/")
                             else:
-                                relative_path = os.path.relpath(
-                                    full_path, base_path
-                                ).replace("\\", "/")
+                                relative_path = os.path.relpath(full_path, base_path).replace("\\", "/")
 
                             current_files[relative_path] = timestamp
                         except (OSError, ValueError) as e:
-                            self.logger.warning(
-                                f"无法获取文件信息: {full_path}, 错误: {e}"
-                            )
+                            self.logger.warning(f"无法获取文件信息: {full_path}, 错误: {e}")
                             continue
 
             scan_time = time.time() - t_start
@@ -401,9 +381,7 @@ class FileMonitorService:
             self.logger.error(f"扫描目录失败: {directory_path}, 错误: {e}")
             return {}
 
-    def _compare_file_states(
-        self, old_files: List[Dict], current_files: Dict[str, int]
-    ) -> Dict:
+    def _compare_file_states(self, old_files: list[dict], current_files: dict[str, int]) -> dict:
         """
         比较文件状态，识别变更
 
@@ -466,9 +444,7 @@ class FileMonitorService:
                 return 0, {}
 
             # 小弟向领导申请file_id（领导串行分配，避免一次性创建5800个）
-            file_id = self.file_index_manager.get_or_create_file_id(
-                relative_path, timestamp
-            )
+            file_id = self.file_index_manager.get_or_create_file_id(relative_path, timestamp)
 
             try:
                 # 小弟处理文件，使用领导分配的file_id（同步调用）
@@ -480,26 +456,20 @@ class FileMonitorService:
                 return doc_count, timings
             except Exception as e:
                 # 失败了，回滚这个file_id
-                self.logger.error(
-                    f"文件处理失败，回滚file_id: {relative_path}, 错误: {e}"
-                )
+                self.logger.error(f"文件处理失败，回滚file_id: {relative_path}, 错误: {e}")
                 try:
                     # 使用改造后的方法，支持单个文件删除
                     self._delete_file_data_by_file_id(file_id)
-                    self.logger.debug(
-                        f"已回滚文件索引: {relative_path} (ID: {file_id})"
-                    )
+                    self.logger.debug(f"已回滚文件索引: {relative_path} (ID: {file_id})")
                 except Exception as rollback_error:
-                    self.logger.error(
-                        f"回滚文件索引失败: {relative_path}, 错误: {rollback_error}"
-                    )
+                    self.logger.error(f"回滚文件索引失败: {relative_path}, 错误: {rollback_error}")
                 raise
 
         except Exception as e:
             self.logger.error(f"文件处理失败: {relative_path}, 错误: {e}")
             return 0, {}
 
-    def _delete_file_data_by_file_id(self, file_ids: Union[int, List[int]]) -> bool:
+    def _delete_file_data_by_file_id(self, file_ids: int | list[int]) -> bool:
         """
         删除文件相关的所有数据（支持单个和批量删除）
 
@@ -529,7 +499,7 @@ class FileMonitorService:
             self.logger.error(f"删除文件数据失败 (IDs: {file_ids}): {e}")
             return False
 
-    def _batch_delete_sqlite_records(self, file_ids: List[int]) -> bool:
+    def _batch_delete_sqlite_records(self, file_ids: list[int]) -> bool:
         """批量删除SQLite记录和内存缓存"""
         try:
             table_name = self.file_index_manager._get_table_name()
@@ -537,9 +507,7 @@ class FileMonitorService:
 
             # 批量查询文件路径（用于缓存清理）
             select_query = f"SELECT id, relative_path FROM {table_name} WHERE id IN ({placeholders})"
-            cursor = self.file_index_manager._execute_query(
-                select_query, tuple(file_ids)
-            )
+            cursor = self.file_index_manager._execute_query(select_query, tuple(file_ids))
             file_mappings = cursor.fetchall()  # [(id, path), (id, path), ...]
 
             # 批量删除SQLite记录（使用新的可靠方法）
@@ -548,9 +516,7 @@ class FileMonitorService:
             deleted_count = self.file_index_manager._execute_batch_delete(
                 delete_query, params_list, caller="batch_delete_sqlite"
             )
-            self.logger.debug(
-                f"请求删除 {len(file_ids)} 个SQLite记录，通过新的批量方法实际删除了 {deleted_count} 个。"
-            )
+            self.logger.debug(f"请求删除 {len(file_ids)} 个SQLite记录，通过新的批量方法实际删除了 {deleted_count} 个。")
 
             # 批量清理内存缓存
             with self.file_index_manager._cache_lock:

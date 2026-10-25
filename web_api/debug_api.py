@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from quart import jsonify, request
 
@@ -27,7 +27,7 @@ class DebugAPI:
     def __init__(self, plugin_context):
         self.plugin_context = plugin_context
 
-    def _get_embedding_provider(self) -> Optional[Any]:
+    def _get_embedding_provider(self) -> Any | None:
         try:
             provider = self.plugin_context.get_embedding_provider()
             if provider is not None:
@@ -42,7 +42,7 @@ class DebugAPI:
             pass
         return None
 
-    def _get_rerank_provider(self) -> Optional[Any]:
+    def _get_rerank_provider(self) -> Any | None:
         # 优先从已创建的组件实例中取
         for comp_name in ("memory_sql_manager", "note_chunk_search", "vector_store"):
             try:
@@ -126,7 +126,7 @@ class DebugAPI:
         return max(128, min(8192, v))
 
     @staticmethod
-    def _extract_rerank_items(resp: Any) -> List[Dict[str, Any]]:
+    def _extract_rerank_items(resp: Any) -> list[dict[str, Any]]:
         return extract_rerank_items(resp)
 
     async def embedding_probe(self):
@@ -145,7 +145,7 @@ class DebugAPI:
         if isinstance(raw_texts, str):
             raw_texts = [line.strip() for line in raw_texts.splitlines() if line.strip()]
 
-        texts: List[str] = []
+        texts: list[str] = []
         if isinstance(raw_texts, list):
             for item in raw_texts:
                 t = str(item or "").strip()
@@ -165,7 +165,7 @@ class DebugAPI:
             return jsonify({"error": "嵌入提供商不可用（未配置或未初始化）", "has_provider": False}), 503
 
         # 手动按 batch_size 分批，避免篡改 provider.batch_size 全局状态
-        batches: List[List[str]] = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
+        batches: list[list[str]] = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
 
         provider_info = {}
         try:
@@ -175,11 +175,11 @@ class DebugAPI:
             provider_info = {}
 
         overall_start = time.time()
-        batch_results: List[Dict[str, Any]] = []
-        dimensions: List[int] = []
+        batch_results: list[dict[str, Any]] = []
+        dimensions: list[int] = []
         failed = 0
         timed_out_batches = 0
-        preview_embeddings: List[Dict[str, Any]] = []
+        preview_embeddings: list[dict[str, Any]] = []
 
         # 整体上限 90s，防止大批次卡死
         overall_budget = 90
@@ -194,7 +194,7 @@ class DebugAPI:
                         "elapsed_ms": 0,
                         "success": False,
                         "timed_out": False,
-                        "error": f"整体探针超时（>{overall_budget}s），剩余 {len(batches)-idx} 批未执行",
+                        "error": f"整体探针超时（>{overall_budget}s），剩余 {len(batches) - idx} 批未执行",
                     }
                 )
                 failed += len(batches) - idx
@@ -238,7 +238,7 @@ class DebugAPI:
                         "dimension": dim,
                     }
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 elapsed_ms = int((time.time() - start) * 1000)
                 failed += 1
                 timed_out_batches += 1
@@ -299,7 +299,9 @@ class DebugAPI:
                 "provider": {
                     "provider_id": provider_info.get("provider_id") or getattr(provider, "provider_id", ""),
                     "model_name": provider_info.get("model_name") or provider_info.get("model") or "",
-                    "type": getattr(provider, "get_provider_type", lambda: "")() if hasattr(provider, "get_provider_type") else "",
+                    "type": getattr(provider, "get_provider_type", lambda: "")()
+                    if hasattr(provider, "get_provider_type")
+                    else "",
                 },
                 "batch_details": batch_results,
                 "preview": preview_embeddings[:5],
@@ -321,7 +323,7 @@ class DebugAPI:
         if isinstance(raw_docs, str):
             raw_docs = [line.strip() for line in raw_docs.splitlines() if line.strip()]
 
-        documents: List[str] = []
+        documents: list[str] = []
         if isinstance(raw_docs, list):
             for item in raw_docs:
                 t = str(item or "").strip()
@@ -371,7 +373,7 @@ class DebugAPI:
             if count_tokens(query) > rerank_max_tokens:
                 query = truncate_by_tokens(query, rerank_max_tokens)
                 query_truncated = True
-            new_docs: List[str] = []
+            new_docs: list[str] = []
             for d in documents:
                 if count_tokens(d) > rerank_max_tokens:
                     d = truncate_by_tokens(d, rerank_max_tokens)
@@ -417,7 +419,7 @@ class DebugAPI:
             if inspect.isawaitable(resp):
                 try:
                     raw_resp = await asyncio.wait_for(resp, timeout=timeout)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     timed_out = True
                     raw_resp = None
             else:
@@ -471,7 +473,7 @@ class DebugAPI:
 
         items = self._extract_rerank_items(raw_resp)
         # 归一化为 {index, score} 方便前端展示
-        scores: List[Dict[str, Any]] = []
+        scores: list[dict[str, Any]] = []
         for it in items:
             try:
                 idx = it.get("index")

@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from types import MethodType
-from pathlib import Path
-from typing import Any, Dict
 import types
+from pathlib import Path
+from types import MethodType
+from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -61,10 +61,7 @@ if "astrbot" not in sys.modules:
 try:
     from core.deepmind import DeepMind, ReflectionInput  # noqa: E402
 except Exception as import_error:  # pragma: no cover - 调试脚本降级路径
-    print(
-        "SKIP: 当前运行环境无法直接导入 core.deepmind。"
-        f"请在插件加载上下文中运行。详情: {import_error}"
-    )
+    print(f"SKIP: 当前运行环境无法直接导入 core.deepmind。请在插件加载上下文中运行。详情: {import_error}")
     raise SystemExit(0)
 
 
@@ -90,9 +87,7 @@ class _DummyProviderResp:
 class _DummyProvider:
     async def text_chat(self, prompt: str):
         # 返回最小可解析 JSON
-        return _DummyProviderResp(
-            '{"feedback_data":{"useful_memory_ids":[],"new_memories":{},"merge_groups":[]}}'
-        )
+        return _DummyProviderResp('{"feedback_data":{"useful_memory_ids":[],"new_memories":{},"merge_groups":[]}}')
 
 
 class _DummyContext:
@@ -101,7 +96,7 @@ class _DummyContext:
 
 
 class _DummyJsonParser:
-    def extract_json(self, text: str) -> Dict[str, Any]:
+    def extract_json(self, text: str) -> dict[str, Any]:
         # 直接返回固定结构，避免耦合解析细节
         return {"feedback_data": {"useful_memory_ids": [], "new_memories": {}, "merge_groups": []}}
 

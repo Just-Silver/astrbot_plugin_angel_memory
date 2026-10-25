@@ -10,7 +10,7 @@ import re
 import sqlite3
 from abc import ABC
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 try:
     from astrbot.api import logger
@@ -45,9 +45,7 @@ class SQLiteDatabaseManager(ABC):
 
         # 在生成数据库文件名时确保安全 (保留连字符，但对文件名是合法的)
         safe_provider_id_for_filename = re.sub(r"[^\w\-]", "_", str(provider_id))
-        self.db_path = (
-            self.data_directory / f"{db_name}_{safe_provider_id_for_filename}.db"
-        )
+        self.db_path = self.data_directory / f"{db_name}_{safe_provider_id_for_filename}.db"
 
         # 新增：创建一个对SQL表名安全的ID (不允许连字符)
         self.safe_table_provider_id = re.sub(r"[^\w]", "_", str(provider_id))
@@ -136,9 +134,7 @@ class SQLiteDatabaseManager(ABC):
             self.logger.error(f"[{caller}] 数据库操作失败: {e}")
             raise
 
-    def _execute_query(
-        self, query: str, params: Optional[Tuple] = None, caller: str = "unknown"
-    ) -> sqlite3.Cursor:
+    def _execute_query(self, query: str, params: tuple | None = None, caller: str = "unknown") -> sqlite3.Cursor:
         """
         执行SQL查询
 
@@ -168,9 +164,7 @@ class SQLiteDatabaseManager(ABC):
             self.logger.error(f"SQL查询执行失败: {query}, 参数: {params}, 错误: {e}")
             raise DatabaseError(f"SQL查询执行失败: {e}") from e
 
-    def _execute_batch(
-        self, query: str, params_list: List[Tuple], caller: str = "unknown"
-    ) -> None:
+    def _execute_batch(self, query: str, params_list: list[tuple], caller: str = "unknown") -> None:
         """
         批量执行SQL操作
 
@@ -197,7 +191,7 @@ class SQLiteDatabaseManager(ABC):
     def _execute_single(
         self,
         query: str,
-        params: Optional[Tuple] = None,
+        params: tuple | None = None,
         caller: str = "unknown",
         auto_commit: bool = True,
     ) -> sqlite3.Cursor:
@@ -230,9 +224,7 @@ class SQLiteDatabaseManager(ABC):
             self.logger.error(f"SQL操作执行失败: {query}, 参数: {params}, 错误: {e}")
             raise DatabaseError(f"SQL操作执行失败: {e}") from e
 
-    def _batch_get_or_create_ids(
-        self, values: List[str], value_field: str, caller: str = "unknown"
-    ) -> List[int]:
+    def _batch_get_or_create_ids(self, values: list[str], value_field: str, caller: str = "unknown") -> list[int]:
         """
         批量获取或创建ID的通用方法（依赖SQLite内置锁机制）
 
@@ -273,9 +265,7 @@ class SQLiteDatabaseManager(ABC):
                     params_list = [(value, 0) for value in new_values]  # 默认时间戳为0
                 else:
                     # 标签表只需要name字段
-                    insert_query = (
-                        f"INSERT OR IGNORE INTO {table_name} ({value_field}) VALUES (?)"
-                    )
+                    insert_query = f"INSERT OR IGNORE INTO {table_name} ({value_field}) VALUES (?)"
                     params_list = [(value,) for value in new_values]
 
                 cursor.executemany(insert_query, params_list)
@@ -301,9 +291,7 @@ class SQLiteDatabaseManager(ABC):
             self.logger.error(f"批量获取或创建ID失败: {e}")
             raise DatabaseError(f"批量获取或创建ID失败: {e}") from e
 
-    def _batch_get_names_by_ids(
-        self, ids: List[int], name_field: str, caller: str = "unknown"
-    ) -> List[str]:
+    def _batch_get_names_by_ids(self, ids: list[int], name_field: str, caller: str = "unknown") -> list[str]:
         """
         批量根据ID获取名称的通用方法
 
@@ -340,7 +328,7 @@ class SQLiteDatabaseManager(ABC):
             self.logger.error(f"批量获取名称失败: {e}")
             return []
 
-    def get_all_records(self) -> List[Dict[str, Any]]:
+    def get_all_records(self) -> list[dict[str, Any]]:
         """
         获取所有记录（子类可重写以提供特定字段）
 
@@ -386,9 +374,7 @@ class SQLiteDatabaseManager(ABC):
             self.logger.error(f"删除记录失败 (ID: {record_id}): {e}")
             return False
 
-    def _execute_batch_delete(
-        self, query: str, params_list: List[Tuple], caller: str = "unknown"
-    ) -> int:
+    def _execute_batch_delete(self, query: str, params_list: list[tuple], caller: str = "unknown") -> int:
         """
         批量执行删除操作，并确保事务提交。
         这是一个专门为解决删除操作不可靠问题而创建的方法。

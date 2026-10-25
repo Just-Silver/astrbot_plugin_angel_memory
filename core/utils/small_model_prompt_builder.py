@@ -4,10 +4,10 @@
 负责构建用于小模型的记忆整理提示词。
 """
 
-from typing import List, Dict, Tuple
 from datetime import datetime
-from ..session_memory import MemoryItem
+
 from ..config import MemoryConstants
+from ..session_memory import MemoryItem
 from .memory_formatter import MemoryFormatter
 
 
@@ -59,7 +59,7 @@ class SmallModelPromptBuilder:
         return ""
 
     @staticmethod
-    def format_chat_records(chat_records: List[Dict]) -> Tuple[str, List[Dict]]:
+    def format_chat_records(chat_records: list[dict]) -> tuple[str, list[dict]]:
         """
         格式化对话历史为可读文本，并生成对话参与者清单。
 
@@ -116,7 +116,7 @@ class SmallModelPromptBuilder:
         return "\n".join(formatted_lines), user_list
 
     @staticmethod
-    def format_note_query(chat_records: List[Dict]) -> str:
+    def format_note_query(chat_records: list[dict]) -> str:
         """
         格式化笔记查询文本，仅提取is_processed=false的最新对话记录内容。
 
@@ -127,26 +127,22 @@ class SmallModelPromptBuilder:
             格式化后的查询文本字符串（纯文本内容拼接）
         """
         # 过滤出未处理的记录
-        unprocessed_records = [
-            msg for msg in chat_records if not msg.get("is_processed", True)
-        ]
+        unprocessed_records = [msg for msg in chat_records if not msg.get("is_processed", True)]
 
         # 如果没有未处理的记录，返回空字符串
         if not unprocessed_records:
             return ""
 
         # 提取最新的未处理记录内容
-        return SmallModelPromptBuilder.extract_text_from_content(
-            unprocessed_records[-1].get("content", [])
-        ).strip()
+        return SmallModelPromptBuilder.extract_text_from_content(unprocessed_records[-1].get("content", [])).strip()
 
     @staticmethod
     def build_memory_prompt(
         formatted_query: str,
-        memories: List[MemoryItem],
-        user_list: List[Dict],
-        candidate_notes: List[Dict] = None,
-        secretary_decision: Dict = None,
+        memories: list[MemoryItem],
+        user_list: list[dict],
+        candidate_notes: list[dict] = None,
+        secretary_decision: dict = None,
         core_topic: str = None,
         system_prompt: str = None,
         memory_config=None,
@@ -175,9 +171,7 @@ class SmallModelPromptBuilder:
 
         # 1. 构建参与者信息（使用列表推导式）
         participants_section = "# 对话参与者\n" + (
-            "\n".join(
-                f"- {p.get('name', '未知')}: {p.get('id', '未知')}" for p in user_list
-            )
+            "\n".join(f"- {p.get('name', '未知')}: {p.get('id', '未知')}" for p in user_list)
             if user_list
             else "暂无详细信息\n"
         )
@@ -199,9 +193,7 @@ class SmallModelPromptBuilder:
                     ai_info_parts.append(f"助理的名字是：{persona_name}")
                 if alias:
                     ai_info_parts.append(f"昵称有：{alias}")
-                ai_identity_section = (
-                    "\n# AI身份信息\n" + "\n".join(ai_info_parts) + "\n"
-                )
+                ai_identity_section = "\n# AI身份信息\n" + "\n".join(ai_info_parts) + "\n"
 
         # 4. 构建核心话题信息
         topic_section = ""
@@ -209,16 +201,16 @@ class SmallModelPromptBuilder:
             topic_section = f"\n# 当前对话核心话题\n{core_topic.strip()}\n"
 
         # 5. 组装新的 system_prompt (已移除废弃的笔记清单)
-        final_system_prompt = f"{system_prompt}\n\n{participants_section}{rules_section}{ai_identity_section}{topic_section}"
+        final_system_prompt = (
+            f"{system_prompt}\n\n{participants_section}{rules_section}{ai_identity_section}{topic_section}"
+        )
 
         # 7. 构建完整提示词（简化记忆处理）
         parts = [final_system_prompt]
         if formatted_query:
             parts.append(f"\n\n对话历史：\n{formatted_query}")
         if memories:
-            parts.append(
-                f"\n\n你回忆起了：\n{MemoryFormatter.format_memories_for_display(memories)}"
-            )
+            parts.append(f"\n\n你回忆起了：\n{MemoryFormatter.format_memories_for_display(memories)}")
         parts.append("\n\n请按照任务进行处理")
 
         return "".join(parts)
@@ -227,11 +219,11 @@ class SmallModelPromptBuilder:
     def build_post_hoc_analysis_prompts(
         historical_query: str,
         main_llm_response: str,
-        raw_memories: List,
+        raw_memories: list,
         core_topic: str = "",
-        memory_id_mapping: Dict[str, str] = None,
+        memory_id_mapping: dict[str, str] = None,
         config=None,
-    ) -> Tuple[str, str]:
+    ) -> tuple[str, str]:
         """
         构建用于事后反思的提示词，返回 (system_prompt, user_prompt)
 
@@ -268,11 +260,7 @@ class SmallModelPromptBuilder:
         # 添加记忆信息
         if raw_memories:
             for memory in raw_memories:
-                short_id = (
-                    memory_id_mapping.get(memory.id, memory.id)
-                    if memory_id_mapping
-                    else memory.id
-                )
+                short_id = memory_id_mapping.get(memory.id, memory.id) if memory_id_mapping else memory.id
                 data_context += f"""
 - **id**: `{short_id}`
 - **type**: `{memory.memory_type.value if hasattr(memory.memory_type, "value") else memory.memory_type}`

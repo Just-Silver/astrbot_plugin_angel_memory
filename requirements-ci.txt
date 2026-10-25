@@ -1,0 +1,7 @@
+# CI 专用依赖（运行时 requirements.txt 之外的测试与检查工具）
+# 安装顺序：pip install -r requirements.txt -r requirements-ci.txt
+pytest>=8.0.0
+# 不锁版本，始终用最新，避免规则集落后于工具演进
+ruff
+# 嵌入提供商测试会 import openai；运行时代码按需懒导入，故不进 requirements.txt
+openai>=1.0.0

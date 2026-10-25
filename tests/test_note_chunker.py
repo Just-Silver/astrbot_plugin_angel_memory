@@ -1,12 +1,7 @@
 """笔记切片器单元测试"""
 
-import pytest
-
 from llm_memory.parser.note_chunker import (
     chunk_file,
-    _identify_special_ranges,
-    _split_by_paragraphs,
-    MAX_CHUNK_CHARS,
 )
 
 
@@ -218,13 +213,21 @@ class TestChunkStore:
         db_path = tmp_path / "test_chunks.db"
         store = NoteChunkStore(str(db_path))
 
-        store.upsert_chunks("f1", "a.md", [
-            {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "a1"},
-            {"chunk_index": 2, "line_start": 2, "line_end": 3, "content": "a2"},
-        ])
-        store.upsert_chunks("f2", "b.md", [
-            {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "b1"},
-        ])
+        store.upsert_chunks(
+            "f1",
+            "a.md",
+            [
+                {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "a1"},
+                {"chunk_index": 2, "line_start": 2, "line_end": 3, "content": "a2"},
+            ],
+        )
+        store.upsert_chunks(
+            "f2",
+            "b.md",
+            [
+                {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "b1"},
+            ],
+        )
 
         stats = store.get_stats()
         assert stats["total_chunks"] == 3

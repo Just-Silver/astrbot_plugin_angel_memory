@@ -5,7 +5,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -47,7 +47,7 @@ class SqliteTextIndex:
             _to = 5
         self._search_timeout = max(5, min(120, _to))
         self._lock = threading.RLock()
-        self._matrix_cache: Optional[Tuple[List[str], np.ndarray]] = None
+        self._matrix_cache: tuple[list[str], np.ndarray] | None = None
 
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
@@ -95,7 +95,7 @@ class SqliteTextIndex:
         return arr.tobytes(order="C")
 
     @staticmethod
-    def _decode_vector(blob: bytes, dimension: int) -> Optional[np.ndarray]:
+    def _decode_vector(blob: bytes, dimension: int) -> np.ndarray | None:
         if not blob or int(dimension or 0) <= 0:
             return None
         arr = np.frombuffer(blob, dtype="float32")
@@ -106,7 +106,7 @@ class SqliteTextIndex:
     def _invalidate_cache_locked(self) -> None:
         self._matrix_cache = None
 
-    def _get_meta_locked(self) -> Dict[str, str]:
+    def _get_meta_locked(self) -> dict[str, str]:
         with self._connect() as conn:
             rows = conn.execute("SELECT key, value FROM index_meta").fetchall()
         return {str(row["key"]): str(row["value"]) for row in rows}
@@ -127,7 +127,7 @@ class SqliteTextIndex:
             )
             conn.commit()
 
-    def _is_meta_compatible_locked(self, dimension: Optional[int] = None) -> bool:
+    def _is_meta_compatible_locked(self, dimension: int | None = None) -> bool:
         meta = self._get_meta_locked()
         if not meta:
             return True
@@ -158,14 +158,14 @@ class SqliteTextIndex:
 
     async def _embed_documents(
         self,
-        texts: List[str],
+        texts: list[str],
         *,
         is_query: bool = False,
-        timeout: int | None = None,
-    ) -> Optional[List[List[float]]]:
+        request_timeout: int | None = None,
+    ) -> list[list[float]] | None:
         if not texts:
             return []
-        _timeout = timeout
+        _timeout = request_timeout
         if _timeout is None:
             _timeout = getattr(self, "_search_timeout", 5)
         try:
@@ -178,18 +178,16 @@ class SqliteTextIndex:
                     self.embedding_provider.embed_documents(texts),
                     timeout=_timeout,
                 )
-            except asyncio.TimeoutError:
-                self.logger.warning(
-                    f"[SQLite向量索引] 查询向量化超时 index={self.name} timeout={_timeout}s"
-                )
+            except TimeoutError:
+                self.logger.warning(f"[SQLite向量索引] 查询向量化超时 index={self.name} timeout={_timeout}s")
                 return None
             except Exception as e:
                 self.logger.warning(f"[SQLite向量索引] 查询向量化失败 index={self.name} 异常={e}")
                 return None
         return await self.embedding_provider.embed_documents(texts)
 
-    async def upsert_rows(self, rows: List[Dict[str, str]]) -> None:
-        clean_rows: List[Dict[str, str]] = []
+    async def upsert_rows(self, rows: list[dict[str, str]]) -> None:
+        clean_rows: list[dict[str, str]] = []
         seen = set()
         for row in rows or []:
             item_id = str(row.get("id") or "").strip()
@@ -258,7 +256,7 @@ class SqliteTextIndex:
             self._write_meta_locked(dimension)
             self._invalidate_cache_locked()
 
-    async def rebuild(self, rows: List[Dict[str, str]]) -> Dict[str, int]:
+    async def rebuild(self, rows: list[dict[str, str]]) -> dict[str, int]:
         start = time.time()
         clean_rows = [
             {
@@ -274,7 +272,7 @@ class SqliteTextIndex:
             await self.upsert_rows(clean_rows)
         return {"total": len(clean_rows), "cost_ms": int((time.time() - start) * 1000)}
 
-    async def sync_rows(self, rows: List[Dict[str, str]], *, force_rebuild: bool = False) -> Dict[str, int]:
+    async def sync_rows(self, rows: list[dict[str, str]], *, force_rebuild: bool = False) -> dict[str, int]:
         clean_rows = [
             {
                 "id": str(row.get("id") or "").strip(),
@@ -341,7 +339,7 @@ class SqliteTextIndex:
             row = conn.execute("SELECT COUNT(1) FROM vector_rows").fetchone()
         return int(row[0] if row else 0)
 
-    def delete(self, ids: List[str], **_: Any) -> int:
+    def delete(self, ids: list[str], **_: Any) -> int:
         clean_ids = [str(item_id).strip() for item_id in (ids or []) if str(item_id).strip()]
         if not clean_ids:
             return 0
@@ -356,17 +354,15 @@ class SqliteTextIndex:
             self._invalidate_cache_locked()
         return int(cur.rowcount or 0)
 
-    def list_ids(self) -> List[str]:
+    def list_ids(self) -> list[str]:
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT item_id FROM vector_rows ORDER BY updated_at ASC, item_id ASC"
-            ).fetchall()
+            rows = conn.execute("SELECT item_id FROM vector_rows ORDER BY updated_at ASC, item_id ASC").fetchall()
         return [str(row["item_id"]) for row in rows]
 
-    def get(self, limit: Optional[int] = None, offset: int = 0, include: Optional[List[str]] = None) -> Dict[str, Any]:
+    def get(self, limit: int | None = None, offset: int = 0, include: list[str] | None = None) -> dict[str, Any]:
         del include
         sql = "SELECT item_id FROM vector_rows ORDER BY updated_at ASC, item_id ASC"
-        params: Tuple[Any, ...] = ()
+        params: tuple[Any, ...] = ()
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
             params = (max(0, int(limit)), max(0, int(offset)))
@@ -374,7 +370,7 @@ class SqliteTextIndex:
             rows = conn.execute(sql, params).fetchall()
         return {"ids": [str(row["item_id"]) for row in rows]}
 
-    def _load_matrix_locked(self) -> Tuple[List[str], np.ndarray]:
+    def _load_matrix_locked(self) -> tuple[list[str], np.ndarray]:
         if self._matrix_cache is not None:
             return self._matrix_cache
 
@@ -387,9 +383,9 @@ class SqliteTextIndex:
                 """
             ).fetchall()
 
-        ids: List[str] = []
-        vectors: List[np.ndarray] = []
-        expected_dimension: Optional[int] = None
+        ids: list[str] = []
+        vectors: list[np.ndarray] = []
+        expected_dimension: int | None = None
         for row in rows:
             dimension = int(row["dimension"] or 0)
             vector = self._decode_vector(row["embedding_blob"], dimension)
@@ -414,9 +410,9 @@ class SqliteTextIndex:
         *,
         query: str,
         limit: int = 10,
-        vector: Optional[List[float]] = None,
+        vector: list[float] | None = None,
         similarity_threshold: float = 0.5,
-    ) -> List[Tuple[str, float]]:
+    ) -> list[tuple[str, float]]:
         query_vector = vector
         if query_vector is None:
             embeddings = await self._embed_documents([str(query or "").strip()], is_query=True)
@@ -451,7 +447,7 @@ class SqliteTextIndex:
         top_k = min(max(1, int(limit)), int(scores.size))
         order = np.argsort(scores)[::-1][:top_k]
 
-        recalled: List[Tuple[str, float]] = []
+        recalled: list[tuple[str, float]] = []
         for idx in order.tolist():
             score = float(scores[idx])
             if score < float(similarity_threshold):
@@ -471,7 +467,7 @@ class SqliteVectorStore:
         embedding_provider: Any,
         index_dir: Path,
         provider_id: str,
-        rerank_provider: Optional[Any] = None,
+        rerank_provider: Any | None = None,
         search_timeout: int | None = None,
     ):
         if embedding_provider is None:
@@ -487,7 +483,7 @@ class SqliteVectorStore:
         self._search_timeout = max(5, min(120, _to))
         self.logger = logger
         self.client = f"sqlite-vector:{self.index_dir}"
-        self._collections: Dict[str, SqliteTextIndex] = {}
+        self._collections: dict[str, SqliteTextIndex] = {}
         self._lock = threading.RLock()
         self.index_dir.mkdir(parents=True, exist_ok=True)
         self.model_key = self._build_model_key()
@@ -534,14 +530,14 @@ class SqliteVectorStore:
 
     async def embed_documents(
         self,
-        documents: List[str],
+        documents: list[str],
         is_query: bool = False,
-        timeout: int | None = None,
-    ) -> Optional[List[List[float]]]:
+        request_timeout: int | None = None,
+    ) -> list[list[float]] | None:
         texts = [str(doc or "").strip() for doc in (documents or [])]
         if not texts:
             return []
-        _timeout = timeout
+        _timeout = request_timeout
         if _timeout is None:
             _timeout = getattr(self, "_search_timeout", 5)
         try:
@@ -556,7 +552,7 @@ class SqliteVectorStore:
                     self.embedding_provider.embed_documents(texts),
                     timeout=_timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self.logger.warning(f"[SQLite向量索引] 查询向量化超时 timeout={_timeout}s")
                 return None
             except Exception as e:
@@ -568,12 +564,12 @@ class SqliteVectorStore:
         self,
         document: str,
         is_query: bool = False,
-        timeout: int | None = None,
-    ) -> Optional[List[float]]:
+        request_timeout: int | None = None,
+    ) -> list[float] | None:
         text = str(document or "").strip()
         if not text:
             return None
-        embeddings = await self.embed_documents([text], is_query=is_query, timeout=timeout)
+        embeddings = await self.embed_documents([text], is_query=is_query, request_timeout=request_timeout)
         if embeddings:
             return embeddings[0]
         return None
@@ -581,7 +577,7 @@ class SqliteVectorStore:
     async def upsert_memory_index_rows(
         self,
         collection: SqliteTextIndex,
-        rows: List[Dict[str, str]],
+        rows: list[dict[str, str]],
     ) -> None:
         await collection.upsert_rows(rows)
 
@@ -590,9 +586,9 @@ class SqliteVectorStore:
         collection: SqliteTextIndex,
         query: str,
         limit: int = 10,
-        vector: Optional[List[float]] = None,
+        vector: list[float] | None = None,
         similarity_threshold: float = 0.5,
-    ) -> List[Tuple[str, float]]:
+    ) -> list[tuple[str, float]]:
         return await collection.search(
             query=query,
             limit=limit,

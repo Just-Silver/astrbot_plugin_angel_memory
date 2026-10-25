@@ -5,11 +5,10 @@ note_short_id 注册表，用于 angel_note_read 定位原始文件。
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional
 
-from .id_service import IDService
-from ..parser.note_chunker import chunk_file
 from ..components.note_chunk_search import NoteChunkSearchEngine
+from ..parser.note_chunker import chunk_file
+from .id_service import IDService
 
 try:
     from astrbot.api import logger
@@ -58,9 +57,9 @@ class NoteService:
         self,
         query: str,
         max_results: int = 10,
-        tag_filter: List[str] = None,
+        tag_filter: list[str] = None,
         threshold: float = 0.5,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         del tag_filter, threshold
         search_engine = self._get_chunk_search_engine()
         if search_engine is None:
@@ -74,9 +73,9 @@ class NoteService:
         query: str,
         recall_count: int = 100,
         top_k: int = 20,
-        tag_filter: List[str] = None,
-        vector: Optional[List[float]] = None,
-    ) -> List[Dict]:
+        tag_filter: list[str] = None,
+        vector: list[float] | None = None,
+    ) -> list[dict]:
         del tag_filter, vector
         search_engine = self._get_chunk_search_engine()
         if search_engine is None:
@@ -85,7 +84,7 @@ class NoteService:
         results = self._format_chunk_results(raw_results)
         return self._enrich_with_short_ids(results)
 
-    def _get_chunk_search_engine(self) -> Optional[NoteChunkSearchEngine]:
+    def _get_chunk_search_engine(self) -> NoteChunkSearchEngine | None:
         """获取切片搜索引擎实例"""
         if self.plugin_context is None:
             return None
@@ -93,31 +92,33 @@ class NoteService:
         return engine
 
     @staticmethod
-    def _format_chunk_results(raw_results: List[Dict]) -> List[Dict]:
+    def _format_chunk_results(raw_results: list[dict]) -> list[dict]:
         """将切片搜索结果格式化为统一的笔记结果格式"""
-        formatted: List[Dict] = []
+        formatted: list[dict] = []
         for r in raw_results:
             source_file_path = str(r.get("source_file_path") or "")
             content = str(r.get("content") or "").strip()
             line_start = int(r.get("line_start", 0))
             line_end = int(r.get("line_end", 0))
-            formatted.append({
-                "id": f"{r.get('file_id', '')}#{r.get('chunk_index', 0)}",
-                "content": content,
-                "metadata": {
-                    "source_file_path": source_file_path,
-                    "file_id": str(r.get("file_id") or ""),
-                    "line_start": line_start,
-                    "line_end": line_end,
-                    "chunk_index": int(r.get("chunk_index", 0)),
-                    "note_short_id": -1,
-                },
-                "tags": [],
-                "similarity": float(r.get("score", 0.0)),
-            })
+            formatted.append(
+                {
+                    "id": f"{r.get('file_id', '')}#{r.get('chunk_index', 0)}",
+                    "content": content,
+                    "metadata": {
+                        "source_file_path": source_file_path,
+                        "file_id": str(r.get("file_id") or ""),
+                        "line_start": line_start,
+                        "line_end": line_end,
+                        "chunk_index": int(r.get("chunk_index", 0)),
+                        "note_short_id": -1,
+                    },
+                    "tags": [],
+                    "similarity": float(r.get("score", 0.0)),
+                }
+            )
         return formatted
 
-    def _enrich_with_short_ids(self, results: List[Dict]) -> List[Dict]:
+    def _enrich_with_short_ids(self, results: list[dict]) -> list[dict]:
         """为结果补充 note_short_id"""
         if not results:
             return results
@@ -126,7 +127,13 @@ class NoteService:
             memory_sql_manager = self._get_memory_sql_manager()
         except Exception:
             return results
-        paths = list({r.get("metadata", {}).get("source_file_path", "") for r in results if r.get("metadata", {}).get("source_file_path")})
+        paths = list(
+            {
+                r.get("metadata", {}).get("source_file_path", "")
+                for r in results
+                if r.get("metadata", {}).get("source_file_path")
+            }
+        )
         if not paths:
             return results
         path_to_short_id = memory_sql_manager.get_short_ids_by_paths_sync(paths)
@@ -140,12 +147,12 @@ class NoteService:
         self,
         query: str,
         recall_count: int = 100,
-        vector: Optional[List[float]] = None,
-    ) -> List[Dict]:
+        vector: list[float] | None = None,
+    ) -> list[dict]:
         del recall_count, vector
         return await self.search_notes(query=query)
 
-    def get_note(self, note_id: str) -> Dict:
+    def get_note(self, note_id: str) -> dict:
         raise NoteOperationError(
             f"已废弃按 note_id 读取正文接口（note_id={note_id}）。"
             "请改用 angel_note_read(note_short_id + offset/limit)。"
@@ -160,7 +167,7 @@ class NoteService:
     ) -> tuple:
         import time
 
-        timings: Dict[str, float] = {}
+        timings: dict[str, float] = {}
         file_obj = Path(file_path)
         if not file_obj.exists():
             self.logger.warning(f"文件不存在: {file_path}")
@@ -212,7 +219,7 @@ class NoteService:
     @staticmethod
     def _extract_heading_h1(file_path: str) -> str:
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore", newline=None) as f:
+            with open(file_path, encoding="utf-8", errors="ignore", newline=None) as f:
                 for raw_line in f:
                     line = raw_line.strip()
                     if not line.startswith("# "):
@@ -231,7 +238,7 @@ class NoteService:
         file_id: str,
         *,
         update_search_index: bool = True,
-        timings: Optional[Dict[str, float]] = None,
+        timings: dict[str, float] | None = None,
     ) -> int:
         """对文件执行切片，写入切片库，并可选更新搜索索引。"""
         if Path(file_path).suffix.lower() not in {".md", ".txt"}:
@@ -239,7 +246,7 @@ class NoteService:
         try:
             import time
 
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(file_path, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
             if not content.strip():
                 return 0
@@ -285,7 +292,7 @@ class NoteService:
     @staticmethod
     def _count_total_lines(file_path: str) -> int:
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore", newline=None) as f:
+            with open(file_path, encoding="utf-8", errors="ignore", newline=None) as f:
                 text = f.read()
         except Exception:
             return 0

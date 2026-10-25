@@ -4,8 +4,6 @@ ID转换服务 - 精简版ID转换接口
 专注提供文件ID转换和资源管理。
 """
 
-from typing import Optional
-
 from ..components.file_index_manager import FileIndexManager
 
 # 导入日志记录器
@@ -59,9 +57,7 @@ class IDService:
 
         # 初始化底层管理器
         # 文件扫描状态属于中央真相源，不按 provider 分仓
-        self.file_manager = FileIndexManager(
-            self.file_index_directory, self.file_index_provider
-        )
+        self.file_manager = FileIndexManager(self.file_index_directory, self.file_index_provider)
 
         self.logger.info(
             f"ID服务初始化完成 (提供商: {self.provider_id}, "
@@ -88,7 +84,7 @@ class IDService:
             self.logger.error(f"文件转ID失败: {file_path}, 错误: {e}")
             raise IDConversionError(f"文件转ID失败: {file_path}") from e
 
-    def id_to_file(self, file_id: int) -> Optional[str]:
+    def id_to_file(self, file_id: int) -> str | None:
         """
         单个ID转文件路径
 

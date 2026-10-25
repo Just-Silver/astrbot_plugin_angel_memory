@@ -285,6 +285,23 @@ LLM响应 → DeepMind.async_analyze_and_update_memory()
 - 开发与自测在功能分支完成；**验证通过后才合并回 `master`**，未验证不得直接推主分支。
 - 分支合并后及时删除，避免长期分叉。
 
+### CI/CD 与发布规范
+发布**必须**走「先 beta、后正式」两段式，tag 是版本历史的记录点：
+
+1. **beta**：在 `fix/` 或 `feat/` 分支上打预发布 tag，如 `v1.6.17-beta.1`，推送后由 `release.yml` 以 Pre-release 发布，安装到实际环境验证。
+2. **正式版**：beta 验证通过后合并分支到 `master`，在 `master` 上打正式 tag，如 `v1.6.17`。
+
+- 预发布 tag（带 `-` 后缀）**不得**打在 `master` 上；正式 tag **必须**在 `master` 上。两条都由 `release.yml` 校验并拒绝。
+- 发布前 `tag` 版本 == `metadata.yaml` 的 `version` == `CHANGELOG.md` 对应小节，三者不一致即失败。
+- CD 以 CI 为前置条件：`release.yml` 通过 `workflow_call` 复用 `ci.yml` 的 `verify` job，跑的是同一组检查，失败则不发版。
+- tag 推送**不会**再次触发 CI（`ci.yml` 的 `push` 只监听分支）；不要在 CD 里直接 `pytest`，避免维护两份检查定义。
+- 发版前先把 `CHANGELOG.md` 的 `Unreleased` 整理成 `## [x.y.z] - YYYY-MM-DD` 小节。
+
+### 代码风格
+- 门禁命令：`ruff check .` 与 `ruff format --check .`，规则配置见 `ruff.toml`（对齐 AstrBot 主项目，未做规则裁剪）。
+- 提交前本地跑一遍上述两条，CI 会以同样命令拦截。
+- `ruff.toml` 只排除 `*.md`（文档里的代码块属文档内容，不能被格式化改写）与测试目录的 `E402`（测试需先注入 `sys.path` 与桩模块再导入，属结构必然）。
+
 ### 提交信息规范
 - 采用约定式提交（Conventional Commits），推荐格式：`type(scope): 简要中文描述`。
 - 提交信息默认使用中文，便于与现有项目历史保持一致。

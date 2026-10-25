@@ -7,7 +7,6 @@
 
 import re
 from pathlib import Path
-from typing import Optional, Dict
 
 try:
     from astrbot.api import logger
@@ -21,10 +20,10 @@ class PathManager:
     """中央路径管理器 - 统一管理所有路径和供应商数据库分离"""
 
     _instance = None
-    _project_root: Optional[Path] = None
-    _current_provider: Optional[str] = None
-    _base_dir: Optional[Path] = None
-    _base_data_dir: Optional[Path] = None
+    _project_root: Path | None = None
+    _current_provider: str | None = None
+    _base_dir: Path | None = None
+    _base_data_dir: Path | None = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -65,9 +64,7 @@ class PathManager:
 
         # 强制要求传入数据目录
         if not base_data_dir:
-            raise ValueError(
-                "必须提供 base_data_dir 参数！数据目录应由外部传入，不应自动推测。"
-            )
+            raise ValueError("必须提供 base_data_dir 参数！数据目录应由外部传入，不应自动推测。")
 
         # 使用过滤后的安全ID（仅用于文件名）
         safe_provider_id = re.sub(r'[<>:"/\\|?*]', "_", provider_id.strip())
@@ -82,9 +79,7 @@ class PathManager:
         self._ensure_provider_directories_exist()
         self._ensure_central_directories_exist()
 
-        logger.info(
-            f"PathManager供应商设置完成: {provider_id} -> {safe_provider_id}, 基础目录: {self._base_dir}"
-        )
+        logger.info(f"PathManager供应商设置完成: {provider_id} -> {safe_provider_id}, 基础目录: {self._base_dir}")
 
     def get_current_provider(self) -> str:
         """获取当前供应商ID"""
@@ -196,16 +191,11 @@ class PathManager:
     @classmethod
     def get_prompt_retirement_review_path(cls) -> Path:
         """获取记忆淘汰审查提示词文件。"""
-        return (
-            cls._get_plugin_root()
-            / "llm_memory"
-            / "prompts"
-            / "memory_retirement_review.md"
-        )
+        return cls._get_plugin_root() / "llm_memory" / "prompts" / "memory_retirement_review.md"
 
     # === 便捷方法 ===
 
-    def list_databases(self) -> Dict[str, Path]:
+    def list_databases(self) -> dict[str, Path]:
         """列出当前供应商的所有数据库文件"""
         if not self.is_provider_set():
             return {}
@@ -217,7 +207,7 @@ class PathManager:
             "sqlite_vector_index": self.get_sqlite_vector_index_dir(),
         }
 
-    def get_database_info(self) -> Dict[str, any]:
+    def get_database_info(self) -> dict[str, any]:
         """获取当前供应商的数据库信息"""
         if not self.is_provider_set():
             return {}

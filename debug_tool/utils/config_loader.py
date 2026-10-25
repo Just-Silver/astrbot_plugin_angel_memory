@@ -2,9 +2,10 @@ import json
 import logging
 import os
 import re
-from typing import Dict, Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
 
 class ConfigLoader:
     def __init__(self, base_path: str = None):
@@ -21,15 +22,15 @@ class ConfigLoader:
         # ../../../cmd_config.json
         return os.path.abspath(os.path.join(self.base_path, "../../../cmd_config.json"))
 
-    def load_config(self) -> Dict[str, Any]:
+    def load_config(self) -> dict[str, Any]:
         config_path = self.get_config_path()
         if not os.path.exists(config_path):
             raise FileNotFoundError(f"Config file not found at: {config_path}")
 
-        with open(config_path, 'r', encoding='utf-8-sig') as f: # utf-8-sig to handle BOM
+        with open(config_path, encoding="utf-8-sig") as f:  # utf-8-sig to handle BOM
             return json.load(f)
 
-    def get_embedding_provider(self) -> Optional[Dict[str, Any]]:
+    def get_embedding_provider(self) -> dict[str, Any] | None:
         """获取插件配置的 embedding provider"""
         plugin_config_path = os.path.abspath(
             os.path.join(
@@ -40,7 +41,7 @@ class ConfigLoader:
         plugin_config = {}
         if os.path.exists(plugin_config_path):
             try:
-                with open(plugin_config_path, "r", encoding="utf-8-sig") as f:
+                with open(plugin_config_path, encoding="utf-8-sig") as f:
                     plugin_config = json.load(f)
             except Exception:
                 pass
@@ -76,7 +77,7 @@ class ConfigLoader:
 
         return None
 
-    def get_embedding_provider_status(self) -> Dict[str, Any]:
+    def get_embedding_provider_status(self) -> dict[str, Any]:
         """获取 embedding provider 状态信息，用于判断是否发生回退"""
         plugin_config_path = os.path.abspath(
             os.path.join(
@@ -87,7 +88,7 @@ class ConfigLoader:
         plugin_config = {}
         if os.path.exists(plugin_config_path):
             try:
-                with open(plugin_config_path, "r", encoding="utf-8-sig") as f:
+                with open(plugin_config_path, encoding="utf-8-sig") as f:
                     plugin_config = json.load(f)
             except Exception:
                 pass
@@ -136,15 +137,15 @@ class ConfigLoader:
     def get_data_dir(self, provider_id: str) -> str:
         # data/plugins/astrbot_plugin_angel_memory/debug_tool -> data/plugin_data/astrbot_plugin_angel_memory
         # ../../../plugin_data/astrbot_plugin_angel_memory
-        base_data_dir = os.path.abspath(os.path.join(self.base_path, "../../../plugin_data/astrbot_plugin_angel_memory"))
+        base_data_dir = os.path.abspath(
+            os.path.join(self.base_path, "../../../plugin_data/astrbot_plugin_angel_memory")
+        )
         # 主插件 path_manager 用正则替换所有 Windows 非法字符，debug_tool 须完全对齐
         provider_id = re.sub(r'[<>:"/\\|?*]', "_", provider_id.strip())
         return os.path.join(base_data_dir, f"memory_{provider_id}", "index", "faiss")
 
     def get_plugin_data_dir(self) -> str:
-        return os.path.abspath(
-            os.path.join(self.base_path, "../../../plugin_data/astrbot_plugin_angel_memory")
-        )
+        return os.path.abspath(os.path.join(self.base_path, "../../../plugin_data/astrbot_plugin_angel_memory"))
 
     def get_memory_center_dir(self) -> str:
         return os.path.join(self.get_plugin_data_dir(), "memory_center")
@@ -163,5 +164,7 @@ class ConfigLoader:
 
     def get_raw_notes_dir(self) -> str:
         # data/plugins/astrbot_plugin_angel_memory/debug_tool -> data/plugin_data/astrbot_plugin_angel_memory/raw
-        base_data_dir = os.path.abspath(os.path.join(self.base_path, "../../../plugin_data/astrbot_plugin_angel_memory"))
+        base_data_dir = os.path.abspath(
+            os.path.join(self.base_path, "../../../plugin_data/astrbot_plugin_angel_memory")
+        )
         return os.path.join(base_data_dir, "raw")

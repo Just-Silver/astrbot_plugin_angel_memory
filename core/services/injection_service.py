@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from astrbot.api.provider import ProviderRequest
 
@@ -35,7 +35,7 @@ class DeepMindInjectionService:
         self,
         session_id: str,
         memory_scope: str = "public",
-    ) -> List[BaseMemory]:
+    ) -> list[BaseMemory]:
         """按短期仓引用刷新长期记忆内容，并清理失效引用。"""
         deepmind = self.deepmind
         memory_ids = deepmind.session_memory_manager.get_session_memory_ids(session_id)
@@ -59,17 +59,14 @@ class DeepMindInjectionService:
         missing_ids = [
             memory_id
             for memory_id in memory_ids
-            if str(memory_id or "").strip()
-            and str(memory_id or "").strip() not in found_ids
+            if str(memory_id or "").strip() and str(memory_id or "").strip() not in found_ids
         ]
         removed_count = deepmind.session_memory_manager.remove_memory_ids_from_session(
             session_id,
             missing_ids,
         )
         if removed_count:
-            deepmind.logger.debug(
-                f"[短期记忆] 清理失效引用 session={session_id} count={removed_count}"
-            )
+            deepmind.logger.debug(f"[短期记忆] 清理失效引用 session={session_id} count={removed_count}")
 
         memory_map = {
             str(getattr(memory, "id", "") or "").strip(): memory
@@ -93,7 +90,7 @@ class DeepMindInjectionService:
         request: ProviderRequest,
         session_id: str,
         note_context: str,
-        soul_state_values: Optional[Dict[str, Any]] = None,
+        soul_state_values: dict[str, Any] | None = None,
         has_secretary_decision: bool = False,
         memory_scope: str = "public",
     ) -> None:
@@ -105,7 +102,7 @@ class DeepMindInjectionService:
             "以下是系统自动检索的背景上下文（包含记忆、笔记及当前状态）。\n"
             "请利用这些信息辅助回答，但必须遵守以下规则：\n"
             "1. **对话优先**：始终优先响应用户的当前对话内容，记忆和笔记仅作为补充参考。\n"
-            "2. **绝对隐形**：严禁在回复中提及\"soul_state\"、\"系统提示\"、\"XML标签\"等来源信息。\n"
+            '2. **绝对隐形**：严禁在回复中提及"soul_state"、"系统提示"、"XML标签"等来源信息。\n'
             "3. **状态保密**：soul_state 仅用于调整你的回复风格，绝不可在回复中泄露或讨论。\n"
             "4. **自然默契**：你需要记得用户的一切，但要表现得像刚好理解用户所想，而不是正在翻看记忆看板。\n"
             "</instruction>"
@@ -113,18 +110,14 @@ class DeepMindInjectionService:
         system_context_parts.append(instruction)
 
         if soul_state_values and deepmind.config.enable_soul_system:
-            norm_recall = self.normalize_soul_value(
-                "RecallDepth", soul_state_values.get("RecallDepth", 0.5)
-            )
+            norm_recall = self.normalize_soul_value("RecallDepth", soul_state_values.get("RecallDepth", 0.5))
             norm_impression = self.normalize_soul_value(
                 "ImpressionDepth", soul_state_values.get("ImpressionDepth", 0.5)
             )
             norm_expression = self.normalize_soul_value(
                 "ExpressionDesire", soul_state_values.get("ExpressionDesire", 0.5)
             )
-            norm_creativity = self.normalize_soul_value(
-                "Creativity", soul_state_values.get("Creativity", 0.5)
-            )
+            norm_creativity = self.normalize_soul_value("Creativity", soul_state_values.get("Creativity", 0.5))
 
             bar_recall = self.create_tendency_bar(norm_recall)
             bar_impression = self.create_tendency_bar(norm_impression)
@@ -151,14 +144,10 @@ class DeepMindInjectionService:
                 session_id,
                 short_id_registry=deepmind.plugin_context.get_component("memory_sql_manager"),
             )
-            short_term_memories = deepmind.user_profile_service.filter_regular_memories(
-                session_id, short_term_memories
-            )
+            short_term_memories = deepmind.user_profile_service.filter_regular_memories(session_id, short_term_memories)
 
         if user_profile_context:
-            system_context_parts.append(
-                f"<user_profiles>\n{user_profile_context}\n</user_profiles>"
-            )
+            system_context_parts.append(f"<user_profiles>\n{user_profile_context}\n</user_profiles>")
 
         memory_context = deepmind.memory_injector.format_session_memories_for_prompt(
             short_term_memories,
@@ -171,11 +160,7 @@ class DeepMindInjectionService:
             system_context_parts.append(f"<notes>\n{note_context}\n</notes>")
 
         if system_context_parts:
-            full_system_context = (
-                "<system_context>\n"
-                + "\n\n".join(system_context_parts)
-                + "\n</system_context>"
-            )
+            full_system_context = "<system_context>\n" + "\n\n".join(system_context_parts) + "\n</system_context>"
             request.contexts.append(
                 {
                     "role": "user",
@@ -194,6 +179,4 @@ class DeepMindInjectionService:
             "- 想起的内容自然融入当前回答，对话焦点始终跟随用户\n"
             "- 表现得这些信息你本来就知道，工具和系统提示只是获取手段"
         )
-        request.system_prompt = (
-            f"{request.system_prompt}\n\n{memory_guide}" if request.system_prompt else memory_guide
-        )
+        request.system_prompt = f"{request.system_prompt}\n\n{memory_guide}" if request.system_prompt else memory_guide

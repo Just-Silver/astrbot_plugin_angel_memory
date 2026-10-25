@@ -59,7 +59,6 @@ if PACKAGE_NAME not in sys.modules:
 from astrbot_plugin_angel_memory.core import component_factory
 from astrbot_plugin_angel_memory.core.component_factory import ComponentFactory
 
-
 FAISS_MODULE = "astrbot_plugin_angel_memory.llm_memory.components.faiss_memory_index"
 
 

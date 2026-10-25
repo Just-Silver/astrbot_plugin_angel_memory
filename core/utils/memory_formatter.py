@@ -4,12 +4,12 @@
 负责将记忆格式化为统一的文本格式，便于阅读和理解。
 """
 
-from types import SimpleNamespace
-from typing import List, Dict, Any, Optional
 import time
+from types import SimpleNamespace
+from typing import Any
 
-from ..session_memory import MemoryItem
 from ..config import MemoryConstants
+from ..session_memory import MemoryItem
 
 
 class MemoryFormatter:
@@ -59,7 +59,7 @@ class MemoryFormatter:
         return f"{id_prefix}{judgment}{reasoning}{time_suffix}"
 
     @staticmethod
-    def format_memories_by_type(memories: List[MemoryItem]) -> Dict[str, List[str]]:
+    def format_memories_by_type(memories: list[MemoryItem]) -> dict[str, list[str]]:
         """
         按类型分组格式化记忆
 
@@ -73,25 +73,17 @@ class MemoryFormatter:
         grouped_memories = {}
         for memory in memories:
             # 处理 MemoryItem 对象的 memory_type 属性
-            type_value = (
-                memory.memory_type.value
-                if hasattr(memory.memory_type, "value")
-                else memory.memory_type
-            )
-            type_value = MemoryConstants.MEMORY_TYPE_MAPPING.get(
-                type_value, str(type_value or "").lower()
-            )
+            type_value = memory.memory_type.value if hasattr(memory.memory_type, "value") else memory.memory_type
+            type_value = MemoryConstants.MEMORY_TYPE_MAPPING.get(type_value, str(type_value or "").lower())
             type_name = MemoryFormatter.MEMORY_TYPE_NAMES.get(type_value, type_value)
-            grouped_memories.setdefault(type_name, []).append(
-                MemoryFormatter.format_single_memory(memory)
-            )
+            grouped_memories.setdefault(type_name, []).append(MemoryFormatter.format_single_memory(memory))
         return grouped_memories
 
     @staticmethod
     def format_memories_for_prompt(
-        memories: List[MemoryItem],
-        useful_memory_ids: Optional[List[str]] = None,
-        action_memories: Optional[List[Dict[str, Any]]] = None,
+        memories: list[MemoryItem],
+        useful_memory_ids: list[str] | None = None,
+        action_memories: list[dict[str, Any]] | None = None,
     ) -> str:
         """
         格式化记忆用于提示词
@@ -113,9 +105,7 @@ class MemoryFormatter:
 
         # 添加有用的历史记忆（使用列表推导式）
         if useful_memory_ids:
-            memories_to_format.extend(
-                memory_map[mid] for mid in useful_memory_ids if mid in memory_map
-            )
+            memories_to_format.extend(memory_map[mid] for mid in useful_memory_ids if mid in memory_map)
 
         # 添加新记忆（使用列表推导式）
         if action_memories:
@@ -142,14 +132,12 @@ class MemoryFormatter:
         formatted_lines = ["[相关记忆]"]
         for memory_type, formatted_memories in grouped_memories.items():
             formatted_lines.append(f"\n[{memory_type}]")
-            formatted_lines.extend(
-                f"\n{memory_text}" for memory_text in formatted_memories
-            )
+            formatted_lines.extend(f"\n{memory_text}" for memory_text in formatted_memories)
 
         return "".join(formatted_lines)
 
     @staticmethod
-    def _deduplicate_memories(memories: List[MemoryItem]) -> List[MemoryItem]:
+    def _deduplicate_memories(memories: list[MemoryItem]) -> list[MemoryItem]:
         """
         去重记忆列表，基于judgment文本内容
 
@@ -172,7 +160,7 @@ class MemoryFormatter:
         return deduplicated
 
     @staticmethod
-    def format_session_memories(memories: List[MemoryItem], short_id_registry=None) -> str:
+    def format_session_memories(memories: list[MemoryItem], short_id_registry=None) -> str:
         """
         格式化会话工作记忆列表，无过滤，但会去重。每条记忆带全局短 ID。
 
@@ -192,14 +180,8 @@ class MemoryFormatter:
         # 按类型分组（保留原始对象以便获取 ID）
         grouped = {}
         for memory in deduplicated_memories:
-            type_value = (
-                memory.memory_type.value
-                if hasattr(memory.memory_type, "value")
-                else memory.memory_type
-            )
-            type_value = MemoryConstants.MEMORY_TYPE_MAPPING.get(
-                type_value, str(type_value or "").lower()
-            )
+            type_value = memory.memory_type.value if hasattr(memory.memory_type, "value") else memory.memory_type
+            type_value = MemoryConstants.MEMORY_TYPE_MAPPING.get(type_value, str(type_value or "").lower())
             type_name = MemoryFormatter.MEMORY_TYPE_NAMES.get(type_value, type_value)
             grouped.setdefault(type_name, []).append(memory)
 
@@ -213,16 +195,12 @@ class MemoryFormatter:
                     mem_id = str(getattr(memory, "id", "") or "").strip()
                     if mem_id:
                         short_id = short_id_registry.get_short_id(mem_id)
-                formatted_lines.append(
-                    f"\n{MemoryFormatter.format_single_memory(memory, short_id=short_id)}"
-                )
+                formatted_lines.append(f"\n{MemoryFormatter.format_single_memory(memory, short_id=short_id)}")
 
         return "".join(formatted_lines)
 
-    
-
     @staticmethod
-    def format_memories_for_display(memories: List[MemoryItem]) -> str:
+    def format_memories_for_display(memories: list[MemoryItem]) -> str:
         """
         格式化记忆用于显示
 
@@ -239,14 +217,8 @@ class MemoryFormatter:
         grouped = {}
         for memory in memories:
             # 处理 MemoryItem 对象的 memory_type 属性
-            type_value = (
-                memory.memory_type.value
-                if hasattr(memory.memory_type, "value")
-                else memory.memory_type
-            )
-            type_value = MemoryConstants.MEMORY_TYPE_MAPPING.get(
-                type_value, str(type_value or "").lower()
-            )
+            type_value = memory.memory_type.value if hasattr(memory.memory_type, "value") else memory.memory_type
+            type_value = MemoryConstants.MEMORY_TYPE_MAPPING.get(type_value, str(type_value or "").lower())
             type_name = MemoryFormatter.MEMORY_TYPE_NAMES.get(type_value, type_value)
             grouped.setdefault(type_name, []).append(memory)
 

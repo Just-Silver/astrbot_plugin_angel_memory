@@ -13,8 +13,6 @@
 """
 
 import re
-from typing import List, Dict
-
 
 # 切片最大字符数（清洗后纯文本计）
 MAX_CHUNK_CHARS = 220
@@ -25,7 +23,7 @@ def chunk_file(
     relative_path: str,
     *,
     max_chunk_chars: int = MAX_CHUNK_CHARS,
-) -> List[Dict]:
+) -> list[dict]:
     """
     将文件内容切分为切片列表。
 
@@ -64,7 +62,7 @@ def chunk_file(
     raw_chunks = _split_by_paragraphs(lines, special_ranges, max_chunk_chars)
 
     # 组装最终结果：第一个切片包含路径行
-    chunks: List[Dict] = []
+    chunks: list[dict] = []
     chunk_index = 1
 
     for raw_chunk in raw_chunks:
@@ -111,7 +109,7 @@ def chunk_file(
     return chunks
 
 
-def _identify_special_ranges(lines: List[str]) -> List[Dict]:
+def _identify_special_ranges(lines: list[str]) -> list[dict]:
     """
     识别代码块和表格的行号范围（这些区域不拆分）。
 
@@ -151,7 +149,7 @@ def _identify_special_ranges(lines: List[str]) -> List[Dict]:
     return ranges
 
 
-def _is_in_special_range(line_1based: int, special_ranges: List[Dict]) -> bool:
+def _is_in_special_range(line_1based: int, special_ranges: list[dict]) -> bool:
     """检查某行是否在特殊块范围内"""
     for r in special_ranges:
         if r["start"] <= line_1based <= r["end"]:
@@ -159,7 +157,7 @@ def _is_in_special_range(line_1based: int, special_ranges: List[Dict]) -> bool:
     return False
 
 
-def _get_special_range_at(line_1based: int, special_ranges: List[Dict]) -> Dict:
+def _get_special_range_at(line_1based: int, special_ranges: list[dict]) -> dict:
     """获取某行所在的特殊块范围"""
     for r in special_ranges:
         if r["start"] <= line_1based <= r["end"]:
@@ -168,10 +166,10 @@ def _get_special_range_at(line_1based: int, special_ranges: List[Dict]) -> Dict:
 
 
 def _split_by_paragraphs(
-    lines: List[str],
-    special_ranges: List[Dict],
+    lines: list[str],
+    special_ranges: list[dict],
     max_chunk_chars: int,
-) -> List[Dict]:
+) -> list[dict]:
     """
     按段落（空行）切分，特殊块保持完整。
 
@@ -179,8 +177,8 @@ def _split_by_paragraphs(
         [{"line_start": int, "line_end": int, "text": str}, ...]
         行号从 1 开始
     """
-    chunks: List[Dict] = []
-    current_lines: List[str] = []
+    chunks: list[dict] = []
+    current_lines: list[str] = []
     current_start = 1
     current_char_count = 0
 

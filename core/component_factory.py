@@ -7,8 +7,8 @@ ComponentFactory - 组件工厂
 
 import subprocess
 import sys
-from typing import Dict, Any, Optional
 from pathlib import Path
+from typing import Any
 
 try:
     from astrbot.api import logger
@@ -18,18 +18,18 @@ except ImportError:
     logger = logging.getLogger(__name__)
 
 # 导入核心组件
+from ..llm_memory import CognitiveService
 from ..llm_memory.components.embedding_provider import EmbeddingProviderFactory
 from ..llm_memory.components.memory_sql_manager import MemorySqlManager
-from ..llm_memory.components.note_chunk_store import NoteChunkStore
 from ..llm_memory.components.note_chunk_search import NoteChunkSearchEngine
-from ..llm_memory import CognitiveService
+from ..llm_memory.components.note_chunk_store import NoteChunkStore
 from ..llm_memory.service.memory_decay_policy import (
     MemoryDecayConfig,
     build_decay_config,
 )
 from ..llm_memory.service.note_service import NoteService
-from .memory_runtime import SimpleMemoryRuntime, VectorMemoryRuntime
 from .deepmind import DeepMind
+from .memory_runtime import SimpleMemoryRuntime, VectorMemoryRuntime
 
 
 class ComponentFactory:
@@ -46,10 +46,10 @@ class ComponentFactory:
         self.plugin_context = plugin_context
         self.context = plugin_context.get_astrbot_context()  # 保持向后兼容
         self.logger = logger
-        self._components: Dict[str, Any] = {}
+        self._components: dict[str, Any] = {}
         self._initialized = False
         self.init_manager = init_manager
-        self._faiss_probe_result: Optional[tuple[bool, str]] = None
+        self._faiss_probe_result: tuple[bool, str] | None = None
 
         # 从PluginContext获取数据目录
         self.data_directory = str(plugin_context.get_index_dir())
@@ -59,7 +59,7 @@ class ComponentFactory:
         self.logger.info(f"   数据目录: {self.data_directory}")
         self.logger.info(f"   有可用提供商: {plugin_context.has_providers()}")
 
-    async def create_all_components(self, config: dict = None) -> Dict[str, Any]:
+    async def create_all_components(self, config: dict = None) -> dict[str, Any]:
         """
         异步创建所有核心组件
 
@@ -150,9 +150,7 @@ class ComponentFactory:
                     vector_enabled = True
                 else:
                     if not provider_available:
-                        self.logger.warning(
-                            "上游嵌入提供商不可用（模型不存在或配置异常），无法创建向量运行时。"
-                        )
+                        self.logger.warning("上游嵌入提供商不可用（模型不存在或配置异常），无法创建向量运行时。")
                         vector_enabled = False
                     else:
                         vector_enabled = True
@@ -197,9 +195,7 @@ class ComponentFactory:
             )
 
             # 6. 创建DeepMind
-            deepmind = await self._create_deepmind(
-                vector_store, note_service, memory_runtime
-            )
+            deepmind = await self._create_deepmind(vector_store, note_service, memory_runtime)
             self._components["deepmind"] = deepmind
 
             # 7. 创建文件监控
@@ -236,7 +232,7 @@ class ComponentFactory:
         memory_sql_manager: MemorySqlManager,
         *,
         reason: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """完成简单记忆初始化。"""
         self.logger.info(f"🧩 {reason}，使用简单记忆运行模式")
         self._components.pop("vector_store", None)
@@ -285,7 +281,7 @@ class ComponentFactory:
             embedding_provider_id,
             enable_local_embedding=self.plugin_context.get_enable_local_embedding(),
             batch_size=self.plugin_context.get_embedding_batch_size(),
-            timeout=60,
+            request_timeout=60,
         )
 
         provider_info = embedding_provider.get_model_info()
@@ -302,8 +298,7 @@ class ComponentFactory:
         try:
             result = subprocess.run(
                 [sys.executable, "-c", "import faiss"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 timeout=10,
             )
@@ -311,8 +306,7 @@ class ComponentFactory:
             detail = f"探测子进程启动失败: {e}"
             self._faiss_probe_result = (False, detail)
             self.logger.warning(
-                f"[向量索引] 失败 任务名=FAISS可用性探测 触发条件=创建向量索引 "
-                f"处理=切换SQLite向量模式 异常={detail}"
+                f"[向量索引] 失败 任务名=FAISS可用性探测 触发条件=创建向量索引 处理=切换SQLite向量模式 异常={detail}"
             )
             return self._faiss_probe_result
 
@@ -323,14 +317,10 @@ class ComponentFactory:
             self.logger.info("[向量索引] 完成 任务名=FAISS可用性探测 结果=可用")
             return self._faiss_probe_result
 
-        detail = (
-            f"returncode={result.returncode} "
-            f"stderr={stderr or '(空)'} stdout={stdout or '(空)'}"
-        )
+        detail = f"returncode={result.returncode} stderr={stderr or '(空)'} stdout={stdout or '(空)'}"
         self._faiss_probe_result = (False, detail)
         self.logger.warning(
-            f"[向量索引] 失败 任务名=FAISS可用性探测 触发条件=创建向量索引 "
-            f"处理=切换SQLite向量模式 {detail}"
+            f"[向量索引] 失败 任务名=FAISS可用性探测 触发条件=创建向量索引 处理=切换SQLite向量模式 {detail}"
         )
         return self._faiss_probe_result
 
@@ -359,10 +349,7 @@ class ComponentFactory:
                 "FAISS",
             )
 
-        self.logger.info(
-            "[向量索引] 开始 任务名=后端选择 结果=SQLite向量模式 "
-            f"原因=FAISS不可用 detail={detail}"
-        )
+        self.logger.info(f"[向量索引] 开始 任务名=后端选择 结果=SQLite向量模式 原因=FAISS不可用 detail={detail}")
         return (
             "sqlite",
             self._load_sqlite_vector_store_class(),
@@ -370,9 +357,7 @@ class ComponentFactory:
             "SQLite",
         )
 
-    def _create_vector_store(
-        self, embedding_provider, rerank_provider=None, search_timeout: int | None = None
-    ):
+    def _create_vector_store(self, embedding_provider, rerank_provider=None, search_timeout: int | None = None):
         """创建向量索引。"""
         backend_name, VectorStoreClass, index_dir, backend_label = self._select_vector_store_backend()
         self.logger.info(f"🗄️ 创建{backend_label}向量索引...")
@@ -398,19 +383,15 @@ class ComponentFactory:
 
         if provider_type == "api":
             provider_id = provider_info.get("provider_id", "unknown")
-            self.logger.info(
-                f"✅ {backend_label}向量索引创建完成 (使用API提供商: {provider_id})"
-            )
+            self.logger.info(f"✅ {backend_label}向量索引创建完成 (使用API提供商: {provider_id})")
         else:
             model_name = provider_info.get("model_name", "unknown")
-            self.logger.info(
-                f"✅ {backend_label}向量索引创建完成 (使用本地模型: {model_name})"
-            )
+            self.logger.info(f"✅ {backend_label}向量索引创建完成 (使用本地模型: {model_name})")
         self.logger.info(f"[向量索引] 完成 任务名=后端选择 backend={backend_name}")
 
         return vector_store
 
-    def _resolve_rerank_provider(self) -> Optional[Any]:
+    def _resolve_rerank_provider(self) -> Any | None:
         """
         解析上游重排提供商（可选）。
 
@@ -470,7 +451,7 @@ class ComponentFactory:
         self,
         vector_store,
         memory_sql_manager: MemorySqlManager = None,
-        decay_config: Optional[MemoryDecayConfig] = None,
+        decay_config: MemoryDecayConfig | None = None,
     ):
         """创建认知服务"""
         self.logger.info("🧠 创建认知服务...")
@@ -486,8 +467,8 @@ class ComponentFactory:
 
     def _create_memory_sql_manager(
         self,
-        decay_config: Optional[MemoryDecayConfig] = None,
-        rerank_provider: Optional[Any] = None,
+        decay_config: MemoryDecayConfig | None = None,
+        rerank_provider: Any | None = None,
         rerank_timeout: int | None = None,
         rerank_max_docs: int | None = None,
         rerank_max_tokens_per_doc: int | None = None,
@@ -520,7 +501,7 @@ class ComponentFactory:
         self.logger.info(f"✅ SQL记忆管理器创建完成: {simple_db_path}")
         return manager
 
-    def _create_note_chunk_store(self) -> Optional[NoteChunkStore]:
+    def _create_note_chunk_store(self) -> NoteChunkStore | None:
         """创建笔记切片存储"""
         try:
             db_path = self.plugin_context.get_note_chunks_db_path()
@@ -537,7 +518,7 @@ class ComponentFactory:
         rerank_timeout: int | None = None,
         rerank_max_docs: int | None = None,
         rerank_max_tokens_per_doc: int | None = None,
-    ) -> Optional[NoteChunkSearchEngine]:
+    ) -> NoteChunkSearchEngine | None:
         """创建笔记切片搜索引擎"""
         try:
             index_dir = str(self.plugin_context.get_memory_center_dir() / "index")
@@ -625,7 +606,7 @@ class ComponentFactory:
             context=self.context,
             vector_store=vector_store,
             note_service=note_service,
-            plugin_context=self.plugin_context, # 传递plugin_context
+            plugin_context=self.plugin_context,  # 传递plugin_context
             provider_id=llm_provider_id,
             memory_runtime=memory_runtime,  # 使用统一记忆运行时
         )
@@ -653,9 +634,7 @@ class ComponentFactory:
             config=self.plugin_context.config,  # 传入配置
         )
 
-        self.logger.info(
-            f"✅ 文件监控组件创建完成 (提供商: {self.plugin_context.get_current_provider()})"
-        )
+        self.logger.info(f"✅ 文件监控组件创建完成 (提供商: {self.plugin_context.get_current_provider()})")
         return file_monitor
 
     async def _start_file_monitor(self, file_monitor):
@@ -699,7 +678,9 @@ class ComponentFactory:
             migrated = int(result.get("migrated", 0) or 0)
             deleted = int(result.get("deleted", 0) or 0)
             rebuilt = int(result.get("rebuilt", 0) or 0)
-            action = "重建" if rebuilt else ("同步" if (migrated or deleted or changed or missing or orphan) else "跳过")
+            action = (
+                "重建" if rebuilt else ("同步" if (migrated or deleted or changed or missing or orphan) else "跳过")
+            )
             self.logger.info(
                 "[向量索引] 完成 "
                 f"任务名=启动一致性检查 index={index_name} action={action} "
@@ -723,7 +704,7 @@ class ComponentFactory:
                 exc_info=True,
             )
 
-    def get_components(self) -> Dict[str, Any]:
+    def get_components(self) -> dict[str, Any]:
         """获取已创建的组件"""
         return self._components.copy()
 

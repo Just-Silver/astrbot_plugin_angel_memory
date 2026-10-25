@@ -9,27 +9,29 @@ DeepMind潜意识核心模块
 """
 
 import asyncio
-import time
 import json
-from typing import List, Dict, Any, Optional
+import time
 from dataclasses import dataclass, field
+from typing import Any
+
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.provider import ProviderRequest
-from .soul.soul_state import SoulState
-from .utils.memory_id_resolver import MemoryIDResolver
+
 from ..llm_memory.utils.json_parser import JsonParser
-from .session_memory import SessionMemoryManager
 from .memory_runtime import MemoryRuntime
-from .utils import SmallModelPromptBuilder, MemoryInjector
-from .utils.query_processor import get_query_processor
-from .services.retrieval_service import DeepMindRetrievalService
+from .reflection_trace import ReflectionTraceBuffer
 from .services.injection_service import DeepMindInjectionService
+from .services.retrieval_service import DeepMindRetrievalService
 from .services.sleep_service import DeepMindSleepService
 from .services.user_profile_service import UserProfileService
-from .utils.feedback_queue import get_feedback_queue
-from .reflection_trace import ReflectionTraceBuffer
+from .session_memory import SessionMemoryManager
 from .sleep_schedule import seconds_until_next_sleep, should_run_sleep, today_key
+from .soul.soul_state import SoulState
 from .trace_store import TraceStore
+from .utils import MemoryInjector, SmallModelPromptBuilder
+from .utils.feedback_queue import get_feedback_queue
+from .utils.memory_id_resolver import MemoryIDResolver
+from .utils.query_processor import get_query_processor
 
 try:
     from astrbot.api import logger
@@ -48,9 +50,9 @@ class ReflectionInput:
     persona_name: str
     latest_user_text: str
     latest_assistant_text: str
-    secretary_decision: Dict[str, Any] = field(default_factory=dict)
-    chat_records: List[Dict[str, Any]] = field(default_factory=list)
-    memory_context: Dict[str, Any] = field(default_factory=dict)
+    secretary_decision: dict[str, Any] = field(default_factory=dict)
+    chat_records: list[dict[str, Any]] = field(default_factory=list)
+    memory_context: dict[str, Any] = field(default_factory=dict)
 
 
 class DeepMind:
@@ -79,7 +81,7 @@ class DeepMind:
         context,
         vector_store,
         note_service,
-        plugin_context, # 新增
+        plugin_context,  # 新增
         memory_runtime: MemoryRuntime,
         provider_id: str = "",
     ):
@@ -101,7 +103,7 @@ class DeepMind:
         self.context = context
         self.vector_store = vector_store
         self.provider_id = provider_id
-        self.plugin_context = plugin_context # 保存引用
+        self.plugin_context = plugin_context  # 保存引用
 
         # 从全局容器获取logger
         self.logger = logger
@@ -116,8 +118,16 @@ class DeepMind:
 
         # 记忆行为参数
         memory_behavior = getattr(config, "memory_behavior", {})
-        self.min_message_length = memory_behavior.get("min_message_length") if isinstance(memory_behavior, dict) else getattr(config, "min_message_length", 5)
-        self.short_term_memory_capacity = memory_behavior.get("short_term_memory_capacity") if isinstance(memory_behavior, dict) else getattr(config, "short_term_memory_capacity", 1.0)
+        self.min_message_length = (
+            memory_behavior.get("min_message_length")
+            if isinstance(memory_behavior, dict)
+            else getattr(config, "min_message_length", 5)
+        )
+        self.short_term_memory_capacity = (
+            memory_behavior.get("short_term_memory_capacity")
+            if isinstance(memory_behavior, dict)
+            else getattr(config, "short_term_memory_capacity", 1.0)
+        )
 
         # 笔记 Top-K 参数（候选固定为注入的 7 倍）
         note_assistant = getattr(config, "note_assistant", {})
@@ -139,12 +149,10 @@ class DeepMind:
             self.note_recall_enabled = True
 
         # 初始化会话工作记忆缓存
-        self.session_memory_manager = SessionMemoryManager(
-            capacity_multiplier=self.short_term_memory_capacity
-        )
+        self.session_memory_manager = SessionMemoryManager(capacity_multiplier=self.short_term_memory_capacity)
 
         # 睡眠调度状态：每天 04:00 一次，按运行环境本地时间，不做启动补偿
-        self._sleep_tick_task: Optional[asyncio.Task] = None
+        self._sleep_tick_task: asyncio.Task | None = None
         self._sleep_stop_event = asyncio.Event()
         self._last_sleep_day = ""
 
@@ -160,8 +168,8 @@ class DeepMind:
         )
         self.sleep_service = DeepMindSleepService(self)
         self._reflection_state_lock = asyncio.Lock()
-        self._reflection_states: Dict[str, Dict[str, Any]] = {}
-        self._reflection_tick_task: Optional[asyncio.Task] = None
+        self._reflection_states: dict[str, dict[str, Any]] = {}
+        self._reflection_tick_task: asyncio.Task | None = None
         self._reflection_stop_event = asyncio.Event()
         self._reflection_turn_threshold = max(
             1,
@@ -205,7 +213,6 @@ class DeepMind:
             self.logger.error(f"灵魂状态管理器初始化失败: {e}")
             self.soul = None
 
-
     def is_enabled(self) -> bool:
         """检查记忆系统是否可用"""
         return self.memory_system is not None
@@ -240,9 +247,7 @@ class DeepMind:
 
         return True
 
-    def _parse_memory_context(
-        self, event: AstrMessageEvent
-    ) -> Optional[Dict[str, Any]]:
+    def _parse_memory_context(self, event: AstrMessageEvent) -> dict[str, Any] | None:
         """
         解析事件中的记忆上下文数据
 
@@ -256,7 +261,7 @@ class DeepMind:
 
     async def _retrieve_memories_and_notes(
         self, event: AstrMessageEvent, query: str, precompute_vectors: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         检索长期记忆和候选笔记
 
@@ -268,11 +273,7 @@ class DeepMind:
         Returns:
             包含 long_term_memories, candidate_notes, note_id_mapping, secretary_decision 的字典
         """
-        return await self.retrieval_service.retrieve_memories_and_notes(
-            event, query, precompute_vectors
-        )
-
-
+        return await self.retrieval_service.retrieve_memories_and_notes(event, query, precompute_vectors)
 
     def _normalize_soul_value(self, dimension: str, value: float) -> float:
         """将灵魂状态的物理值归一化到 [0, 1] 区间"""
@@ -287,7 +288,7 @@ class DeepMind:
         request: ProviderRequest,
         session_id: str,
         note_context: str,
-        soul_state_values: Optional[Dict[str, Any]] = None,
+        soul_state_values: dict[str, Any] | None = None,
         has_secretary_decision: bool = False,
         memory_scope: str = "public",
     ) -> None:
@@ -318,13 +319,12 @@ class DeepMind:
 
         # 将所有连续的换行符（包括空行）替换为单个换行符
         import re
-        content = re.sub(r'\n+', '\n', content)
+
+        content = re.sub(r"\n+", "\n", content)
 
         return content
 
-    async def organize_and_inject_memories(
-        self, event: AstrMessageEvent, request: ProviderRequest
-    ):
+    async def organize_and_inject_memories(self, event: AstrMessageEvent, request: ProviderRequest):
         """
         潜意识的核心工作：整理相关记忆并结合灵魂状态，喂给主意识。
         """
@@ -334,8 +334,8 @@ class DeepMind:
         session_id = self._get_session_id(event)
 
         # 1. 从 event.angelheart_context 中获取对话历史（仅保留当前连续块）
-        chat_records: List[Dict[str, Any]] = []
-        unprocessed_chat_records: List[Dict[str, Any]] = []
+        chat_records: list[dict[str, Any]] = []
+        unprocessed_chat_records: list[dict[str, Any]] = []
         secretary_decision = {}
         if hasattr(event, "angelheart_context"):
             try:
@@ -412,8 +412,7 @@ class DeepMind:
                 note_context = NoteContextBuilder.build_candidate_list_for_prompt(selected_notes)
 
                 self.logger.debug(
-                    f"笔记上下文构建完成：{len(selected_notes)}条笔记，"
-                    f"注入上限K={self.note_inject_top_k}"
+                    f"笔记上下文构建完成：{len(selected_notes)}条笔记，注入上限K={self.note_inject_top_k}"
                 )
 
         # 7. 获取灵魂状态值
@@ -424,7 +423,7 @@ class DeepMind:
                     "RecallDepth": self.soul.get_value("RecallDepth"),
                     "ImpressionDepth": self.soul.get_value("ImpressionDepth"),
                     "ExpressionDesire": self.soul.get_value("ExpressionDesire"),
-                    "Creativity": self.soul.get_value("Creativity")
+                    "Creativity": self.soul.get_value("Creativity"),
                 }
             except Exception as e:
                 self.logger.warning(f"获取灵魂状态值失败: {e}")
@@ -438,7 +437,12 @@ class DeepMind:
                 # 登记当前事件用户与群聊到账本
                 ledger_sender_id, ledger_sender_name = self._get_event_sender_identity(event)
                 if ledger_sender_id and ledger_sender_id.lower() not in {
-                    "unknown", "user", "assistant", "none", "null", "0",
+                    "unknown",
+                    "user",
+                    "assistant",
+                    "none",
+                    "null",
+                    "0",
                 }:
                     try:
                         ledger_platform = ""
@@ -455,9 +459,7 @@ class DeepMind:
                                 ledger_group_id = ""
 
                         def _register_ledger() -> None:
-                            memory_sql_manager.upsert_user(
-                                ledger_platform, ledger_sender_id, ledger_sender_name
-                            )
+                            memory_sql_manager.upsert_user(ledger_platform, ledger_sender_id, ledger_sender_name)
                             if ledger_group_id:
                                 memory_sql_manager.upsert_group(ledger_group_id)
 
@@ -516,13 +518,13 @@ class DeepMind:
                 "raw_notes": candidate_notes,
                 "core_topic": core_topic,
                 "memory_id_mapping": memory_id_mapping,
-                "note_id_mapping": {}
+                "note_id_mapping": {},
             }
             event.angelmemory_context = json.dumps(angelmemory_context)
         except Exception as e:
             self.logger.error(f"保存原始上下文数据以供异步分析失败: {e}")
 
-    def _extract_message_text(self, event: AstrMessageEvent) -> Optional[str]:
+    def _extract_message_text(self, event: AstrMessageEvent) -> str | None:
         """
         从事件中提取消息文本 (使用标准方法)
 
@@ -545,11 +547,11 @@ class DeepMind:
         invalid_names = {"", "用户", "成员", "未知", "未知用户", "user", "unknown", "none", "null"}
         sid = str(sender_id or "").strip()
         name = str(sender_name or "").strip()
-        
+
         # 核心逻辑改进: 只要有合法的 ID, 就认为身份有效。
         if sid and sid.lower() not in invalid_ids:
             return False
-            
+
         # 只有当 ID 无效且名字也无效时, 才判定为缺失身份。
         return sid.lower() in invalid_ids and name.lower() in invalid_names
 
@@ -597,17 +599,13 @@ class DeepMind:
             session_id = str(event.unified_msg_origin)
             if not session_id:
                 self.logger.error("event.unified_msg_origin 为空值，无法处理会话！")
-                raise ValueError(
-                    "Cannot process event with an empty session ID from unified_msg_origin"
-                )
+                raise ValueError("Cannot process event with an empty session ID from unified_msg_origin")
             return session_id
         except AttributeError:
-            self.logger.error(
-                "事件中缺少 'event.unified_msg_origin' 属性，无法确定会话ID！"
-            )
+            self.logger.error("事件中缺少 'event.unified_msg_origin' 属性，无法确定会话ID！")
             raise
 
-    def _memories_to_json(self, memories: List) -> List[Dict[str, Any]]:
+    def _memories_to_json(self, memories: list) -> list[dict[str, Any]]:
         """
         将记忆对象统一转换为JSON格式
 
@@ -623,11 +621,7 @@ class DeepMind:
         for memory in memories:
             # 处理枚举类型的memory_type（兼容BaseMemory和MemoryItem）
             raw_memory_type = getattr(memory, "memory_type", "")
-            memory_type = (
-                raw_memory_type.value
-                if hasattr(raw_memory_type, "value")
-                else raw_memory_type
-            )
+            memory_type = raw_memory_type.value if hasattr(raw_memory_type, "value") else raw_memory_type
 
             memory_data = {
                 "id": getattr(memory, "id", ""),
@@ -658,10 +652,7 @@ class DeepMind:
         self._sleep_stop_event.clear()
         self._sleep_tick_task = asyncio.create_task(self._sleep_tick_loop())
         next_at = time.time() + seconds_until_next_sleep()
-        self.logger.info(
-            "[睡眠] 调度 开始 下次执行="
-            f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_at))}"
-        )
+        self.logger.info(f"[睡眠] 调度 开始 下次执行={time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_at))}")
 
     async def _sleep_tick_loop(self) -> None:
         """常驻循环：等到下一个 04:00 触发一次睡眠，漏跑不补偿。"""
@@ -670,7 +661,7 @@ class DeepMind:
             try:
                 await asyncio.wait_for(self._sleep_stop_event.wait(), timeout=delay)
                 return
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
             if self._sleep_stop_event.is_set():
                 return
@@ -688,7 +679,7 @@ class DeepMind:
 
     def _complete_reflection_trace(
         self,
-        trace_id: Optional[int],
+        trace_id: int | None,
         *,
         status: str,
         response: str = "",
@@ -707,11 +698,7 @@ class DeepMind:
             return
         try:
             entry = next(
-                (
-                    item
-                    for item in self.reflection_trace.snapshot()
-                    if item.get("id") == trace_id
-                ),
+                (item for item in self.reflection_trace.snapshot() if item.get("id") == trace_id),
                 None,
             )
             if entry is None:
@@ -803,13 +790,11 @@ class DeepMind:
                     for sid, state in self._reflection_states.items()
                     if int(state.get("pending_turns", 0)) > 0
                     and not bool(state.get("processing", False))
-                    and (now - float(state.get("last_activity_at", 0.0)))
-                    >= float(self._reflection_idle_seconds)
+                    and (now - float(state.get("last_activity_at", 0.0))) >= float(self._reflection_idle_seconds)
                 ]
             if session_ids:
                 self.logger.info(
-                    f"[反思调度] tick扫描命中会话数={len(session_ids)} "
-                    f"idle阈值={self._reflection_idle_seconds}s"
+                    f"[反思调度] tick扫描命中会话数={len(session_ids)} idle阈值={self._reflection_idle_seconds}s"
                 )
 
             for sid in session_ids:
@@ -817,9 +802,9 @@ class DeepMind:
 
     def _split_chat_snapshot(
         self,
-        chat_records: List[Dict[str, Any]],
+        chat_records: list[dict[str, Any]],
         historical_count: Any = None,
-    ) -> tuple[List[Dict[str, Any]], str]:
+    ) -> tuple[list[dict[str, Any]], str]:
         """
         按生产方声明的边界把快照切成 (当前连续块, 来源标记)。
 
@@ -846,27 +831,20 @@ class DeepMind:
                 if batch:
                     return batch, "explicit"
                 self.logger.warning(
-                    f"[反思调度] 快照边界切出空批次 historical_count={boundary} "
-                    f"total={len(records)}，退回角色兜底"
+                    f"[反思调度] 快照边界切出空批次 historical_count={boundary} total={len(records)}，退回角色兜底"
                 )
             else:
                 self.logger.warning(
-                    f"[反思调度] 快照边界非法 historical_count={historical_count} "
-                    f"total={len(records)}，退回角色兜底"
+                    f"[反思调度] 快照边界非法 historical_count={historical_count} total={len(records)}，退回角色兜底"
                 )
 
         # 2. 旧契约：有 is_processed 就按旧语义走，不改既有行为。
         has_processed_flag = any("is_processed" in msg for msg in records)
         if has_processed_flag:
-            processed = [
-                msg for msg in records if bool(msg.get("is_processed", False))
-            ]
+            processed = [msg for msg in records if bool(msg.get("is_processed", False))]
             latest_user_unprocessed = None
             for msg in reversed(records):
-                if (
-                    str(msg.get("role", "")).strip() == "user"
-                    and msg.get("is_processed", True) is False
-                ):
+                if str(msg.get("role", "")).strip() == "user" and msg.get("is_processed", True) is False:
                     latest_user_unprocessed = msg
                     break
             combined = list(processed)
@@ -885,7 +863,7 @@ class DeepMind:
         # 切空（快照以 assistant 结尾）或整块无 assistant：保留整块，宁可多吃不可丢弃。
         return records, "role_fallback_full"
 
-    def _build_reflection_records_for_turn(self, event: AstrMessageEvent, response) -> List[Dict[str, Any]]:
+    def _build_reflection_records_for_turn(self, event: AstrMessageEvent, response) -> list[dict[str, Any]]:
         """
         生成“本轮新增”的反思聊天记录。
         分支：
@@ -893,11 +871,7 @@ class DeepMind:
         - 原生：仅当前轮 用户 -> 助理。
         """
         now_ts = time.time()
-        response_text = (
-            getattr(response, "completion_text", str(response))
-            if response is not None
-            else ""
-        )
+        response_text = getattr(response, "completion_text", str(response)) if response is not None else ""
 
         # 分支1：AngelHeart 提供完整 chat_records
         if hasattr(event, "angelheart_context") and getattr(event, "angelheart_context", None):
@@ -921,10 +895,9 @@ class DeepMind:
             except (json.JSONDecodeError, TypeError, KeyError) as e:
                 self.logger.warning(f"反思聊天记录解析失败，降级到原生分支: {e}")
 
-
         # 分支2：原生消息（每轮仅用户输入）
         user_text = self._extract_message_text(event) or ""
-        records: List[Dict[str, Any]] = []
+        records: list[dict[str, Any]] = []
         if user_text.strip():
             sender_id, sender_name = self._get_event_sender_identity(event)
             records.append(
@@ -966,11 +939,7 @@ class DeepMind:
 
         # 本轮回复的权威来源是 response：快照生成于主模型回复之前，
         # 从 records 倒查 assistant 只会取到上一轮的旧回复。
-        response_text = (
-            getattr(response, "completion_text", str(response))
-            if response is not None
-            else ""
-        )
+        response_text = getattr(response, "completion_text", str(response)) if response is not None else ""
         latest_user_text = ""
         latest_assistant_text = str(response_text).strip()
         for msg in reversed(records):
@@ -983,7 +952,7 @@ class DeepMind:
             if latest_user_text and latest_assistant_text:
                 break
 
-        secretary_decision: Dict[str, Any] = {}
+        secretary_decision: dict[str, Any] = {}
         if hasattr(event, "angelheart_context") and getattr(event, "angelheart_context", None):
             try:
                 angelheart_data = json.loads(event.angelheart_context)
@@ -993,7 +962,7 @@ class DeepMind:
             except (json.JSONDecodeError, TypeError, KeyError):
                 secretary_decision = {}
 
-        memory_context: Dict[str, Any] = {}
+        memory_context: dict[str, Any] = {}
         if hasattr(event, "angelmemory_context") and getattr(event, "angelmemory_context", None):
             try:
                 context_data = json.loads(event.angelmemory_context)
@@ -1035,10 +1004,10 @@ class DeepMind:
 
     def _dedupe_and_sort_chat_records(
         self,
-        records: List[Dict[str, Any]],
+        records: list[dict[str, Any]],
         source: str = "聊天记录",
-    ) -> List[Dict[str, Any]]:
-        normalized: List[Dict[str, Any]] = []
+    ) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
         seen = set()
         for msg in records or []:
             if not isinstance(msg, dict):
@@ -1112,7 +1081,7 @@ class DeepMind:
 
     async def _trigger_reflection_if_needed(self, session_id: str, reason: str) -> bool:
         now = time.time()
-        payload: Dict[str, Any] = {}
+        payload: dict[str, Any] = {}
         async with self._reflection_state_lock:
             state = self._reflection_states.get(session_id)
             if not state:
@@ -1180,12 +1149,8 @@ class DeepMind:
             state["processing"] = False
             # 若执行失败，恢复已消费的轮次与记录，避免丢失待反思上下文。
             if not bool(success):
-                state["pending_turns"] = int(state.get("pending_turns", 0)) + int(
-                    payload.get("consumed_turns", 0) or 0
-                )
-                restored = list(state.get("records", [])) + list(
-                    payload.get("historical_chat_records", [])
-                )
+                state["pending_turns"] = int(state.get("pending_turns", 0)) + int(payload.get("consumed_turns", 0) or 0)
+                restored = list(state.get("records", [])) + list(payload.get("historical_chat_records", []))
                 state["records"] = self._dedupe_and_sort_chat_records(restored)
                 self.logger.warning(
                     f"[反思调度] 执行失败后回滚 session={session_id} "
@@ -1227,15 +1192,11 @@ class DeepMind:
             if str(historical_chat_text_override or "").strip():
                 historical_chat_text = str(historical_chat_text_override).strip()
             elif isinstance(raw_chat_records, list) and raw_chat_records:
-                historical_chat_text, _ = self.prompt_builder.format_chat_records(
-                    raw_chat_records
-                )
+                historical_chat_text, _ = self.prompt_builder.format_chat_records(raw_chat_records)
             if not historical_chat_text.strip():
                 historical_chat_text = query
             if not historical_chat_text.strip():
-                historical_chat_text = str(
-                    getattr(reflection_input, "latest_user_text", "") or ""
-                ).strip()
+                historical_chat_text = str(getattr(reflection_input, "latest_user_text", "") or "").strip()
 
             # 获取原始记忆数据
             raw_memories_data = context_data.get("raw_memories", [])
@@ -1254,10 +1215,7 @@ class DeepMind:
                     self.logger.error(f"转换记忆对象失败: {e}")
 
             # 获取主LLM的最终回答
-            response_text = str(
-                getattr(reflection_input, "latest_assistant_text", "") or ""
-            )
-
+            response_text = str(getattr(reflection_input, "latest_assistant_text", "") or "")
 
             # 从上下文数据中获取ID映射表
             memory_id_mapping = context_data.get("memory_id_mapping", {})
@@ -1278,16 +1236,12 @@ class DeepMind:
                 f"system_len={len(system_prompt)} prompt_len={len(prompt)}\n"
                 f"{system_prompt}\n\n{prompt}"
             )
-            trace_id = self.reflection_trace.record_start(
-                session_id, self.provider_id, prompt, system_prompt
-            )
+            trace_id = self.reflection_trace.record_start(session_id, self.provider_id, prompt, system_prompt)
 
             # 调用小模型进行分析（在后台线程中同步调用）
             provider = self.context.get_provider_by_id(self.provider_id)
             if not provider:
-                self.logger.error(
-                    f"找不到提供者: {self.provider_id}，会话: {session_id}"
-                )
+                self.logger.error(f"找不到提供者: {self.provider_id}，会话: {session_id}")
                 self._complete_reflection_trace(
                     trace_id,
                     status="failed",
@@ -1297,24 +1251,18 @@ class DeepMind:
 
             try:
                 # 直接异步调用，无需检查
-                llm_response = await provider.text_chat(
-                    prompt=prompt, system_prompt=system_prompt
-                )
+                llm_response = await provider.text_chat(prompt=prompt, system_prompt=system_prompt)
             except Exception as e:
                 self.logger.error(
                     f"会话 {session_id} 的LLM调用失败，跳过记忆整理: {e}",
                     exc_info=True,
                 )
-                self._complete_reflection_trace(
-                    trace_id, status="failed", error=f"LLM调用失败: {e}"
-                )
+                self._complete_reflection_trace(trace_id, status="failed", error=f"LLM调用失败: {e}")
                 return
 
             if not llm_response or not getattr(llm_response, "completion_text", ""):
                 self.logger.error(f"会话 {session_id} 的LLM API调用失败")
-                self._complete_reflection_trace(
-                    trace_id, status="failed", error="LLM API调用返回空响应"
-                )
+                self._complete_reflection_trace(trace_id, status="failed", error="LLM API调用返回空响应")
                 return
 
             # 提取响应文本
@@ -1324,12 +1272,8 @@ class DeepMind:
             full_json_data = self.json_parser.extract_json(response_text)
 
             if not isinstance(full_json_data, dict):
-                self.logger.error(
-                    f"会话 {session_id} 的JSON解析失败或未返回字典"
-                )
-                self._complete_reflection_trace(
-                    trace_id, status="failed", error="JSON解析失败或未返回字典"
-                )
+                self.logger.error(f"会话 {session_id} 的JSON解析失败或未返回字典")
+                self._complete_reflection_trace(trace_id, status="failed", error="JSON解析失败或未返回字典")
                 return
 
             # 提取 feedback_data
@@ -1356,19 +1300,13 @@ class DeepMind:
             if "useful_memory_ids" in feedback_data:
                 # 使用映射表将短ID翻译回长ID
                 short_ids = feedback_data.get("useful_memory_ids", [])
-                long_ids = [
-                    memory_id_mapping.get(short_id, short_id) for short_id in short_ids
-                ]
+                long_ids = [memory_id_mapping.get(short_id, short_id) for short_id in short_ids]
                 feedback_data["useful_memory_ids"] = long_ids
             else:
-                self.logger.error(
-                    "feedback_data中没有useful_memory_ids字段"
-                )
+                self.logger.error("feedback_data中没有useful_memory_ids字段")
 
             if not isinstance(feedback_data, dict):
-                self.logger.error(
-                    f"feedback_data不是字典类型，实际类型: {type(feedback_data)}，内容: {feedback_data}"
-                )
+                self.logger.error(f"feedback_data不是字典类型，实际类型: {type(feedback_data)}，内容: {feedback_data}")
                 feedback_data = {}  # 安全降级
 
             # === 新的简化接口实现 ===
@@ -1385,8 +1323,7 @@ class DeepMind:
                     continue
                 source_memory_ids = action.get("source_memory_ids", [])
                 action["source_memory_ids"] = [
-                    memory_id_mapping.get(memory_id, memory_id)
-                    for memory_id in source_memory_ids
+                    memory_id_mapping.get(memory_id, memory_id) for memory_id in source_memory_ids
                 ]
 
             # --- 记忆生成限制 (基于灵魂 ImpressionDepth) ---
@@ -1415,9 +1352,7 @@ class DeepMind:
             if self.memory_system:
                 # 从反思输入载体获取 persona_name
                 persona_name = getattr(reflection_input, "persona_name", "")
-                memory_scope = self.plugin_context.resolve_memory_scope(
-                    session_id, persona_name=persona_name
-                )
+                memory_scope = self.plugin_context.resolve_memory_scope(session_id, persona_name=persona_name)
                 # 直接异步调用
                 newly_created_memories = await self.memory_system.feedback(
                     useful_memory_ids=feedback_data.get("useful_memory_ids", []),
@@ -1429,19 +1364,14 @@ class DeepMind:
             # 2. 更新会话工作缓存
             # 获取有用的旧记忆
             useful_ids = feedback_data.get("useful_memory_ids", [])
-            useful_long_term_memories = [
-                mem for mem in long_term_memories if mem.id in useful_ids
-            ]
+            useful_long_term_memories = [mem for mem in long_term_memories if mem.id in useful_ids]
 
             # 将有用的旧记忆和全新的记忆合并，一起放入会话工作缓存
             memories_for_session = useful_long_term_memories + newly_created_memories
             if memories_for_session:
-                self.session_memory_manager.add_memories_to_session(
-                    session_id, memories_for_session
-                )
+                self.session_memory_manager.add_memories_to_session(session_id, memories_for_session)
             self.logger.info(
-                f"[反思执行] 完成 session={session_id} "
-                f"useful={len(useful_ids)} new={len(newly_created_memories)}"
+                f"[反思执行] 完成 session={session_id} useful={len(useful_ids)} new={len(newly_created_memories)}"
             )
             self._complete_reflection_trace(
                 trace_id,
@@ -1452,6 +1382,7 @@ class DeepMind:
 
         except Exception as e:
             import traceback
+
             self._complete_reflection_trace(
                 trace_id,
                 status="failed",

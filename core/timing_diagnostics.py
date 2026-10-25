@@ -9,8 +9,8 @@ with timing_log("操作名称"):
     pass
 """
 
-import time
 import threading
+import time
 from contextlib import contextmanager
 
 try:
@@ -41,13 +41,9 @@ def timing_log(operation_name: str, threshold_ms: float = 100.0):
         elapsed_ms = (time.time() - start_time) * 1000
 
         if elapsed_ms > threshold_ms:
-            logger.warning(
-                f"⏱️ [{thread_name}] {operation_name} - 完成，耗时: {elapsed_ms:.2f}ms ⚠️"
-            )
+            logger.warning(f"⏱️ [{thread_name}] {operation_name} - 完成，耗时: {elapsed_ms:.2f}ms ⚠️")
         else:
-            logger.info(
-                f"⏱️ [{thread_name}] {operation_name} - 完成，耗时: {elapsed_ms:.2f}ms"
-            )
+            logger.info(f"⏱️ [{thread_name}] {operation_name} - 完成，耗时: {elapsed_ms:.2f}ms")
 
 
 def log_checkpoint(checkpoint_name: str):

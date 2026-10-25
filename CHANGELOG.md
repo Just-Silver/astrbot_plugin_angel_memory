@@ -2,6 +2,26 @@
 
 All notable changes to this plugin will be documented in this file.
 
+The format is based on [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [Unreleased]
+
+## [1.6.16] - 2026-10-25
+
+### Fixed
+- `fix(reflection)`: 天使之心 2.0.0 起不再写 `is_processed`，反思入口按该字段筛选导致候选恒为空，反思永不入池、记忆从不生成；改为读取产出方显式声明的 `historical_count` 切分当前连续块，并保留旧标记与角色兜底两级降级。
+- `fix(reflection)`: 反思提示词里的「最新回复」改用 `response.completion_text`；快照生成于主模型回复之前，原逻辑倒查 `assistant` 只会拿到上一轮旧回复。
+- `fix(reflection)`: 新建记忆按判断与作用域去重，避免重复反思产出重复记忆。
+
+### Changed
+- `refactor(reflection)`: 反思缓冲维持纯内存态；未落盘的待反思轮次在重启后丢弃，不引入额外的持久化副本。
+
+## [1.6.15] - 2026-10-25
+
+### Fixed
+- `fix(retrieval)`: 重排结果改为兼容 `RerankResult` 对象读取分数，修复部分重排服务返回对象而非字典时分数解析失败、候选顺序退化为原始顺序的问题。
+
 ## [1.6.14] - 2026-09-10
 
 ### Features

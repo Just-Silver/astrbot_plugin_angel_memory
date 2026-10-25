@@ -94,9 +94,7 @@ def _put_candidate(
 
 def _row(manager: MemorySqlManager, memory_id: str):
     with manager._connect() as conn:
-        return conn.execute(
-            "SELECT * FROM memory_records WHERE id = ?", (memory_id,)
-        ).fetchone()
+        return conn.execute("SELECT * FROM memory_records WHERE id = ?", (memory_id,)).fetchone()
 
 
 def _strength(manager: MemorySqlManager, memory_id: str) -> int:
@@ -111,9 +109,7 @@ def _is_active(manager: MemorySqlManager, memory_id: str):
 
 def _set_strength(manager: MemorySqlManager, memory_id: str, value: int) -> None:
     with manager._connect() as conn:
-        conn.execute(
-            "UPDATE memory_records SET strength = ? WHERE id = ?", (value, memory_id)
-        )
+        conn.execute("UPDATE memory_records SET strength = ? WHERE id = ?", (value, memory_id))
         conn.commit()
 
 
@@ -124,12 +120,7 @@ def _fts_ids(manager: MemorySqlManager, query: str) -> set:
     以便立即观察索引落盘结果。
     """
     manager._fts_retriever._memory_index.reload()
-    return {
-        row["id"]
-        for row in manager._fts_retriever.search_memory_bm25_only(
-            query=query, limit=20
-        )
-    }
+    return {row["id"] for row in manager._fts_retriever.search_memory_bm25_only(query=query, limit=20)}
 
 
 def _candidates(manager: MemorySqlManager):
@@ -137,9 +128,7 @@ def _candidates(manager: MemorySqlManager):
 
 
 def _apply(manager: MemorySqlManager, delete_ids=(), keep_ids=()):
-    return asyncio.run(
-        manager.apply_retirement_decisions(list(delete_ids), list(keep_ids))
-    )
+    return asyncio.run(manager.apply_retirement_decisions(list(delete_ids), list(keep_ids)))
 
 
 def _decay(manager: MemorySqlManager) -> int:
@@ -280,9 +269,7 @@ def test_index_format_version_reuse_and_rebuild(tmp_path):
     assert second._fts_retriever.memory_index_reusable is True
     assert memory.id in _fts_ids(second, "RetireVersionReuse")
 
-    version_file = (
-        second._fts_retriever._memory_dir / TantivyBM25Retriever._INDEX_FORMAT_FILE
-    )
+    version_file = second._fts_retriever._memory_dir / TantivyBM25Retriever._INDEX_FORMAT_FILE
     version_file.write_text("1", encoding="utf-8")
 
     third = MemorySqlManager(db_path=db_path)

@@ -1,12 +1,11 @@
 import logging
-from typing import List
 
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-Documents = List[str]
-Embeddings = List[List[float]]
+Documents = list[str]
+Embeddings = list[list[float]]
 
 
 class EmbeddingFunction:
@@ -21,10 +20,7 @@ class OpenAIEmbeddingFunction(EmbeddingFunction):
         self.dimensions = dimensions
 
         # Configure OpenAI Client
-        self.client = OpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url
-        )
+        self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
     def __call__(self, input: Documents) -> Embeddings:
         """
@@ -41,10 +37,7 @@ class OpenAIEmbeddingFunction(EmbeddingFunction):
 
         try:
             # Prepare arguments
-            kwargs = {
-                "input": input,
-                "model": self.model_name
-            }
+            kwargs = {"input": input, "model": self.model_name}
             if self.dimensions:
                 kwargs["dimensions"] = self.dimensions
 
@@ -59,6 +52,7 @@ class OpenAIEmbeddingFunction(EmbeddingFunction):
         except Exception as e:
             logger.error(f"Error calling Embedding API: {e}")
             raise e
+
 
 def create_embedding_function(provider_config: dict) -> EmbeddingFunction:
     """
@@ -78,14 +72,11 @@ def create_embedding_function(provider_config: dict) -> EmbeddingFunction:
 
     api_base = provider_config.get("api_base") or provider_config.get("embedding_api_base")
     model = provider_config.get("model_config", {}).get("model") or provider_config.get("embedding_model")
-    dimensions = provider_config.get("embedding_dimensions") # Optional
+    dimensions = provider_config.get("embedding_dimensions")  # Optional
 
     if not api_key or not api_base or not model:
-        raise ValueError(f"Incomplete configuration for provider: {provider_config.get('id')}. Need key, api_base, and model.")
+        raise ValueError(
+            f"Incomplete configuration for provider: {provider_config.get('id')}. Need key, api_base, and model."
+        )
 
-    return OpenAIEmbeddingFunction(
-        api_key=api_key,
-        base_url=api_base,
-        model_name=model,
-        dimensions=dimensions
-    )
+    return OpenAIEmbeddingFunction(api_key=api_key, base_url=api_base, model_name=model, dimensions=dimensions)

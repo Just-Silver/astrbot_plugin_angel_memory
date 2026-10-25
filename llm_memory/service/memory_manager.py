@@ -12,22 +12,21 @@
 - Fix 5: _consolidate_previous_task_memory 查询条件从 is_consolidated=False 改为 strength>0
 """
 
-from typing import List, Optional, Dict, Any
 import logging
 import time
 from collections import defaultdict
+from typing import Any
 
 # 导入日志记录器
 try:
     from astrbot.api import logger
 except ImportError:
     logger = logging.getLogger(__name__)
-from ..models.data_models import BaseMemory, MemoryType, ValidationError
-from ..config.system_config import system_config
-from .memory_decay_policy import MemoryDecayConfig, MemoryDecayPolicy
-
 # 导入查询处理器（用于统一检索词预处理）
 from ...core.utils.query_processor import get_query_processor
+from ..config.system_config import system_config
+from ..models.data_models import BaseMemory, MemoryType, ValidationError
+from .memory_decay_policy import MemoryDecayConfig, MemoryDecayPolicy
 
 
 class MemoryManager:
@@ -69,22 +68,22 @@ class MemoryManager:
         """睡眠第一步：T0 时间衰减，只降强度，不删除。"""
         return await self.memory_sql_manager.decay_tier0_memories()
 
-    async def list_retirement_candidates(self) -> List[BaseMemory]:
+    async def list_retirement_candidates(self) -> list[BaseMemory]:
         """睡眠第二步：取出强度归零、等待裁决的被动记忆。"""
         return await self.memory_sql_manager.list_retirement_candidates()
 
     async def apply_retirement_decisions(
         self,
-        delete_ids: List[str],
-        keep_ids: List[str],
-    ) -> Dict[str, int]:
+        delete_ids: list[str],
+        keep_ids: list[str],
+    ) -> dict[str, int]:
         """睡眠第三步：按裁决执行删除与永久化。"""
         return await self.memory_sql_manager.apply_retirement_decisions(
             delete_ids,
             keep_ids,
         )
 
-    async def reinforce_memories(self, memory_ids: List[str]):
+    async def reinforce_memories(self, memory_ids: list[str]):
         """
         强化记忆强度（清醒模式）。
 
@@ -107,9 +106,7 @@ class MemoryManager:
                     current_useful_count = int(current_meta.get("useful_count", 0) or 0)
                     current_useful_score = float(current_meta.get("useful_score", 0.0) or 0.0)
                     decay_config = getattr(self.decay_policy, "config", None)
-                    consolidate_speed = float(
-                        getattr(decay_config, "consolidate_speed", 2.5) or 2.5
-                    )
+                    consolidate_speed = float(getattr(decay_config, "consolidate_speed", 2.5) or 2.5)
                     now_ts = time.time()
                     legacy_doc_id = result["ids"][0]
                     await self.store.update_memory(
@@ -128,7 +125,7 @@ class MemoryManager:
     # ===== 高级回忆功能 =====
 
     @staticmethod
-    def _build_scope_where_filter(memory_scope: str) -> Dict[str, Any]:
+    def _build_scope_where_filter(memory_scope: str) -> dict[str, Any]:
         """构建严格的 memory_scope 过滤条件。"""
         scope = str(memory_scope or "").strip()
         if not scope:
@@ -171,7 +168,7 @@ class MemoryManager:
                 pass
         return default
 
-    def _apply_time_decay(self, memories: List[BaseMemory], decay_rate: float = 0.05) -> List[BaseMemory]:
+    def _apply_time_decay(self, memories: list[BaseMemory], decay_rate: float = 0.05) -> list[BaseMemory]:
         """
         对被动记忆应用时间衰减，并重新排序。
 
@@ -191,14 +188,14 @@ class MemoryManager:
 
         now = time.time()
         for mem in memories:
-            if getattr(mem, 'is_active', False):
+            if getattr(mem, "is_active", False):
                 continue
-            created_at = self._safe_parse_timestamp(getattr(mem, 'created_at', None), now)
+            created_at = self._safe_parse_timestamp(getattr(mem, "created_at", None), now)
             age_days = max(0.0, (now - created_at) / 86400.0)
             decay_factor = 1.0 / (1.0 + decay_rate * age_days)
-            mem.similarity = getattr(mem, 'similarity', 0.0) * decay_factor
+            mem.similarity = getattr(mem, "similarity", 0.0) * decay_factor
 
-        memories.sort(key=lambda m: getattr(m, 'similarity', 0.0), reverse=True)
+        memories.sort(key=lambda m: getattr(m, "similarity", 0.0), reverse=True)
         return memories
 
     async def comprehensive_recall(
@@ -206,9 +203,9 @@ class MemoryManager:
         query: str,
         limit: int = None,
         event=None,
-        vector: Optional[List[float]] = None,
+        vector: list[float] | None = None,
         memory_scope: str = "public",
-    ) -> List[BaseMemory]:
+    ) -> list[BaseMemory]:
         """
         统一记忆检索 - 使用混合检索获取所有相关记忆。
 
@@ -224,9 +221,7 @@ class MemoryManager:
         # 预处理查询词
         processed_query = query
         if self.query_processor and event:
-            processed_query = self.query_processor.process_query_for_memory(
-                query, event
-            )
+            processed_query = self.query_processor.process_query_for_memory(query, event)
 
         if limit is None:
             limit = system_config.default_recall_limit
@@ -240,7 +235,7 @@ class MemoryManager:
                 vector=vector,
                 similarity_threshold=0.5,
             )
-            score_map = {mid: score for mid, score in id_scores}
+            score_map = dict(id_scores)
             hybrid_memories = await self.memory_sql_manager.recall_by_tags(
                 query=processed_query,
                 limit=limit * 3,
@@ -255,7 +250,7 @@ class MemoryManager:
                 return []
             ordered_ids = [mid for mid, _ in id_scores]
             sql_memories = await self.memory_sql_manager.get_memories_by_ids(ordered_ids)
-            filtered: List[BaseMemory] = []
+            filtered: list[BaseMemory] = []
             for mem in sql_memories:
                 if not self._is_scope_allowed(getattr(mem, "memory_scope", "public"), memory_scope):
                     continue
@@ -311,13 +306,13 @@ class MemoryManager:
     async def chained_recall(
         self,
         query: str,
-        entities: List[str],
+        entities: list[str],
         per_type_limit: int = 7,
-        final_limit: Optional[int] = None,
+        final_limit: int | None = None,
         event=None,
-        vector: Optional[List[float]] = None,
+        vector: list[float] | None = None,
         memory_scope: str = "public",
-    ) -> List[BaseMemory]:
+    ) -> list[BaseMemory]:
         """
         链式回忆 - 混合检索 + 实体优先 + 类型分组
 
@@ -377,14 +372,13 @@ class MemoryManager:
         if final_limit is not None and int(final_limit) > 0:
             all_memories = all_memories[: int(final_limit)]
 
-        self.logger.debug(f"链式回忆: 实体记忆={len(entity_memories)}, 类型记忆={sum(len(v) for v in type_memories.values())}, 总计={len(all_memories)}")
+        self.logger.debug(
+            f"链式回忆: 实体记忆={len(entity_memories)}, 类型记忆={sum(len(v) for v in type_memories.values())}, 总计={len(all_memories)}"
+        )
 
         return all_memories
 
-
-    def _build_memory_from_metadata(
-        self, memory_id: str, metadata: dict
-    ) -> Optional[BaseMemory]:
+    def _build_memory_from_metadata(self, memory_id: str, metadata: dict) -> BaseMemory | None:
         """
         从旧向量元数据构建 BaseMemory 对象。
 
@@ -422,11 +416,11 @@ class MemoryManager:
 
     async def merge_memories(
         self,
-        memories_to_merge_ids: List[str],
+        memories_to_merge_ids: list[str],
         new_memory_type: str,
         new_judgment: str,
         new_reasoning: str,
-        new_tags: List[str],
+        new_tags: list[str],
     ) -> BaseMemory:
         """
         记忆合并方法 - LLM驱动的记忆抽象化（中文核心概念）
@@ -455,9 +449,7 @@ class MemoryManager:
         """
         normalized_source_ids = list(
             dict.fromkeys(
-                str(memory_id).strip()
-                for memory_id in (memories_to_merge_ids or [])
-                if str(memory_id).strip()
+                str(memory_id).strip() for memory_id in (memories_to_merge_ids or []) if str(memory_id).strip()
             )
         )
         if not normalized_source_ids:
@@ -478,9 +470,7 @@ class MemoryManager:
                 metadata = memory_results["metadatas"][0]
 
                 # 使用统一的构建方法
-                memory_obj = self._build_memory_from_metadata(
-                    memory_id, metadata
-                )
+                memory_obj = self._build_memory_from_metadata(memory_id, metadata)
 
                 if not memory_obj:
                     self.logger.warning(f"无法构建记忆对象: {memory_id}")
@@ -502,9 +492,7 @@ class MemoryManager:
             if str(getattr(memory_obj, "memory_scope", "public") or "public").strip() != "public"
         }
         if len(non_public_scopes) > 1:
-            raise ValidationError(
-                "禁止合并来自不同私有分类域的记忆：检测到多个非 public memory_scope。"
-            )
+            raise ValidationError("禁止合并来自不同私有分类域的记忆：检测到多个非 public memory_scope。")
         merged_scope = next(iter(non_public_scopes), "public")
         try:
             target_memory_type = MemoryType(str(new_memory_type or "").strip())
@@ -541,12 +529,12 @@ class MemoryManager:
 
     async def process_feedback(
         self,
-        useful_memory_ids: List[str] = None,
-        recalled_memory_ids: List[str] = None,
-        memory_actions: List[dict] = None,
-        memory_handlers: Dict[str, object] = None,
+        useful_memory_ids: list[str] = None,
+        recalled_memory_ids: list[str] = None,
+        memory_actions: list[dict] = None,
+        memory_handlers: dict[str, object] = None,
         memory_scope: str = "public",
-    ) -> List[BaseMemory]:
+    ) -> list[BaseMemory]:
         """
         统一反馈接口 - 处理回忆后的反馈（核心工作流）
 
@@ -574,7 +562,7 @@ class MemoryManager:
             )
             if self.memory_index_collection is not None:
                 ids_to_delete = []
-                for action in (memory_actions or []):
+                for action in memory_actions or []:
                     if str(action.get("action", "")).strip().lower() not in {"merge", "updata"}:
                         continue
                     source_memory_ids = action.get("source_memory_ids", [])
@@ -584,45 +572,40 @@ class MemoryManager:
                 if ids_to_delete:
                     try:
                         import asyncio
+
                         await asyncio.to_thread(
                             self.memory_index_collection.delete,
                             ids=ids_to_delete,
                         )
-                        self.logger.debug(
-                            f"已从 memory_index 删除 {len(ids_to_delete)} 条合并前的记忆向量"
-                        )
+                        self.logger.debug(f"已从 memory_index 删除 {len(ids_to_delete)} 条合并前的记忆向量")
                     except Exception as e:
-                        self.logger.warning(
-                            f"从 memory_index 删除合并记忆向量失败: {e}"
-                        )
+                        self.logger.warning(f"从 memory_index 删除合并记忆向量失败: {e}")
 
                 # 为新合并记忆写入向量索引（不嵌套在 ids_to_delete 内，upsert 是幂等的）
                 if result:
                     rows_to_index = []
                     for merged_memory in result:
-                        if merged_memory and hasattr(merged_memory, 'id'):
+                        if merged_memory and hasattr(merged_memory, "id"):
                             vector_text = self.memory_sql_manager.build_vector_text(
-                                judgment=getattr(merged_memory, 'judgment', ''),
-                                tags=getattr(merged_memory, 'tags', []),
+                                judgment=getattr(merged_memory, "judgment", ""),
+                                tags=getattr(merged_memory, "tags", []),
                             )
                             if vector_text:
-                                rows_to_index.append({
-                                    'id': merged_memory.id,
-                                    'vector_text': vector_text,
-                                })
+                                rows_to_index.append(
+                                    {
+                                        "id": merged_memory.id,
+                                        "vector_text": vector_text,
+                                    }
+                                )
                     if rows_to_index:
                         try:
                             await self.store.upsert_memory_index_rows(
                                 collection=self.memory_index_collection,
                                 rows=rows_to_index,
                             )
-                            self.logger.debug(
-                                f"已为 {len(rows_to_index)} 个合并记忆添加向量索引"
-                            )
+                            self.logger.debug(f"已为 {len(rows_to_index)} 个合并记忆添加向量索引")
                         except Exception as e:
-                            self.logger.warning(
-                                f"为合并记忆添加向量索引失败（不影响主流程）: {e}"
-                            )
+                            self.logger.warning(f"为合并记忆添加向量索引失败（不影响主流程）: {e}")
             return result
 
         useful_memory_ids = useful_memory_ids or []
@@ -641,7 +624,7 @@ class MemoryManager:
 
         # 1.5 被召回但无用：仅衰减 T1（兼容向量直连链路）
         if recalled_memory_ids:
-            useful_set = set(str(x) for x in useful_memory_ids)
+            useful_set = {str(x) for x in useful_memory_ids}
             useless_ids = [str(x) for x in recalled_memory_ids if str(x) not in useful_set]
             if useless_ids:
                 for memory_id in useless_ids:
@@ -681,18 +664,14 @@ class MemoryManager:
             tags = memory_data.get("tags", [])
 
             if not judgment:
-                self.logger.warning(
-                    f"跳过缺少必需字段的记忆动作: action={action} judgment={bool(judgment)}"
-                )
+                self.logger.warning(f"跳过缺少必需字段的记忆动作: action={action} judgment={bool(judgment)}")
                 continue
 
             if action == "create":
                 new_memory_object = None
                 handler = memory_handlers.get(mem_type)
                 if handler:
-                    new_memory_object = await handler.remember(
-                        judgment, reasoning, tags, memory_scope=resolved_scope
-                    )
+                    new_memory_object = await handler.remember(judgment, reasoning, tags, memory_scope=resolved_scope)
                 else:
                     self.logger.warning(f"未找到记忆类型 {mem_type} 的处理器，跳过创建")
 
@@ -744,14 +723,7 @@ class MemoryManager:
                 include=["metadatas"],
             )
             if current_task_data and current_task_data.get("metadatas"):
-                current_scope = (
-                    str(
-                        current_task_data["metadatas"][0].get(
-                            "memory_scope", "public"
-                        )
-                    ).strip()
-                    or "public"
-                )
+                current_scope = str(current_task_data["metadatas"][0].get("memory_scope", "public")).strip() or "public"
 
             # 查找除了当前记忆之外的所有任务记忆（strength>0 表示未过期）
             where_filter = {
@@ -767,24 +739,16 @@ class MemoryManager:
                 return  # 没有其他任务记忆
 
             # 过滤掉当前刚创建的任务记忆
-            previous_task_ids = [
-                mem_id
-                for mem_id in fresh_task_results["ids"]
-                if mem_id != current_task_id
-            ]
+            previous_task_ids = [mem_id for mem_id in fresh_task_results["ids"] if mem_id != current_task_id]
 
             if not previous_task_ids:
                 return  # 没有之前的任务记忆需要巩固
 
             # 将之前的任务记忆强度降至 1（标记为已巩固，但保留最低强度不删除）
             for task_id in previous_task_ids:
-                await self.store.update_memory(
-                    self.collection, task_id, {"strength": 1}
-                )
+                await self.store.update_memory(self.collection, task_id, {"strength": 1})
 
-            self.logger.debug(
-                f"已将 {len(previous_task_ids)} 个之前的任务记忆转为已巩固状态"
-            )
+            self.logger.debug(f"已将 {len(previous_task_ids)} 个之前的任务记忆转为已巩固状态")
 
         except Exception as e:
             self.logger.error(f"巩固之前任务记忆失败: {str(e)}")

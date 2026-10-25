@@ -14,13 +14,13 @@ if TYPE_CHECKING:
 PLUGIN_NAME = "astrbot_plugin_angel_memory"
 
 
-def register_all_routes(context: "Context", plugin_context, plugin=None) -> None:
+def register_all_routes(context: Context, plugin_context, plugin=None) -> None:
     """注册所有 WebUI API 路由。"""
+    from .maintenance_api import MaintenanceAPI
     from .memory_api import MemoryAPI
     from .notes_api import NotesAPI
-    from .tags_api import TagsAPI
-    from .maintenance_api import MaintenanceAPI
     from .profile_api import ProfileAPI
+    from .tags_api import TagsAPI
 
     memory_api = MemoryAPI(plugin_context)
     notes_api = NotesAPI(plugin_context)

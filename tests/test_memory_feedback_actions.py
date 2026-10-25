@@ -72,8 +72,13 @@ if LLM_MEMORY_COMPONENTS_PACKAGE not in sys.modules:
     sys.modules[LLM_MEMORY_COMPONENTS_PACKAGE] = package
 
 from astrbot_plugin_angel_memory.core.utils.memory_id_resolver import MemoryIDResolver
-from astrbot_plugin_angel_memory.llm_memory.components.memory_sql_manager import MemorySqlManager
-from astrbot_plugin_angel_memory.llm_memory.models.data_models import BaseMemory, MemoryType
+from astrbot_plugin_angel_memory.llm_memory.components.memory_sql_manager import (
+    MemorySqlManager,
+)
+from astrbot_plugin_angel_memory.llm_memory.models.data_models import (
+    BaseMemory,
+    MemoryType,
+)
 from astrbot_plugin_angel_memory.llm_memory.service.memory_manager import MemoryManager
 
 
@@ -249,10 +254,8 @@ def test_sql_merge_action_allows_single_source_replacement():
 
     manager._get_memories_by_ids_sync = fake_get_memories
     manager._upsert_tags_and_bind = lambda conn, memory_id, tags: None
-    manager._sync_memory_fts_batch_sync = (
-        lambda upsert_ids=None, delete_ids=None: sync_calls.update(
-            {"upsert_ids": upsert_ids, "delete_ids": delete_ids}
-        )
+    manager._sync_memory_fts_batch_sync = lambda upsert_ids=None, delete_ids=None: sync_calls.update(
+        {"upsert_ids": upsert_ids, "delete_ids": delete_ids}
     )
     manager._connect = lambda: _FakeConnection()
 

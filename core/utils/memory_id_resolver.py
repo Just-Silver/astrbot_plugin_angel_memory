@@ -4,7 +4,7 @@
 负责处理记忆ID的转换和解析相关逻辑，避免代码重复。
 """
 
-from typing import List, Dict, Any
+from typing import Any
 
 
 class MemoryIDResolver:
@@ -14,9 +14,7 @@ class MemoryIDResolver:
     ALLOWED_MEMORY_ACTIONS = {"create", "merge", "updata"}
 
     @staticmethod
-    def generate_id_mapping(
-        items: List[Dict[str, Any]], id_field: str = "id"
-    ) -> Dict[str, str]:
+    def generate_id_mapping(items: list[dict[str, Any]], id_field: str = "id") -> dict[str, str]:
         """
         生成内存态自增短 ID 映射（每次调用从 m0 开始递增）。
 
@@ -38,9 +36,7 @@ class MemoryIDResolver:
         return mapping
 
     @staticmethod
-    def resolve_memory_ids(
-        short_ids: List[str], memories: List, logger=None
-    ) -> List[str]:
+    def resolve_memory_ids(short_ids: list[str], memories: list, logger=None) -> list[str]:
         """
         将短ID转换为完整ID
 
@@ -66,9 +62,7 @@ class MemoryIDResolver:
         return resolved_ids
 
     @staticmethod
-    def normalize_memory_actions_format(
-        memory_actions_raw: List[Dict[str, Any]], logger=None
-    ) -> List[Dict[str, Any]]:
+    def normalize_memory_actions_format(memory_actions_raw: list[dict[str, Any]], logger=None) -> list[dict[str, Any]]:
         """
         统一化 memory_actions 结构。
 
@@ -77,21 +71,17 @@ class MemoryIDResolver:
         - action=merge 时：必须携带 source_memory_ids 和 memory
         - action=updata 时：必须携带且只能携带 1 个 source_memory_id，并携带 memory
         """
-        normalized_actions: List[Dict[str, Any]] = []
+        normalized_actions: list[dict[str, Any]] = []
 
         if not isinstance(memory_actions_raw, list):
             if logger:
-                logger.warning(
-                    f"memory_actions 必须是列表，实际类型: {type(memory_actions_raw)}"
-                )
+                logger.warning(f"memory_actions 必须是列表，实际类型: {type(memory_actions_raw)}")
             return normalized_actions
 
         for raw_action in memory_actions_raw:
             if not isinstance(raw_action, dict):
                 if logger:
-                    logger.warning(
-                        f"Skipping non-dict memory action: {type(raw_action)} - {raw_action}"
-                    )
+                    logger.warning(f"Skipping non-dict memory action: {type(raw_action)} - {raw_action}")
                 continue
 
             action = str(raw_action.get("action", "") or "").strip().lower()
@@ -109,12 +99,10 @@ class MemoryIDResolver:
             memory_type = str(raw_memory.get("type", "") or "").strip().lower()
             if memory_type not in MemoryIDResolver.ALLOWED_NEW_MEMORY_TYPES:
                 if logger:
-                    logger.warning(
-                        f"Skipping action with unsupported memory type: {memory_type}"
-                    )
+                    logger.warning(f"Skipping action with unsupported memory type: {memory_type}")
                 continue
 
-            normalized_action: Dict[str, Any] = {
+            normalized_action: dict[str, Any] = {
                 "action": action,
                 "memory": {
                     "type": memory_type,
@@ -125,36 +113,24 @@ class MemoryIDResolver:
             }
 
             if action == "create" and "source_memory_ids" in raw_action and logger:
-                logger.warning(
-                    f"create 动作不应携带 source_memory_ids，已忽略: {raw_action}"
-                )
+                logger.warning(f"create 动作不应携带 source_memory_ids，已忽略: {raw_action}")
 
             if action in {"merge", "updata"}:
                 source_memory_ids = raw_action.get("source_memory_ids", [])
                 if not isinstance(source_memory_ids, list) or not source_memory_ids:
                     if logger:
-                        logger.warning(
-                            f"{action} 动作缺少有效的 source_memory_ids，已跳过: {raw_action}"
-                        )
+                        logger.warning(f"{action} 动作缺少有效的 source_memory_ids，已跳过: {raw_action}")
                     continue
                 normalized_source_ids = list(
-                    dict.fromkeys(
-                        str(memory_id).strip()
-                        for memory_id in source_memory_ids
-                        if str(memory_id).strip()
-                    )
+                    dict.fromkeys(str(memory_id).strip() for memory_id in source_memory_ids if str(memory_id).strip())
                 )
                 if not normalized_source_ids:
                     if logger:
-                        logger.warning(
-                            f"{action} 动作的 source_memory_ids 为空，已跳过: {raw_action}"
-                        )
+                        logger.warning(f"{action} 动作的 source_memory_ids 为空，已跳过: {raw_action}")
                     continue
                 if action == "updata" and len(normalized_source_ids) != 1:
                     if logger:
-                        logger.warning(
-                            f"updata 动作必须且只能包含 1 个 source_memory_id，已跳过: {raw_action}"
-                        )
+                        logger.warning(f"updata 动作必须且只能包含 1 个 source_memory_id，已跳过: {raw_action}")
                     continue
                 normalized_action["source_memory_ids"] = normalized_source_ids
 

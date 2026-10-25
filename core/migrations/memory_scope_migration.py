@@ -61,14 +61,10 @@ class MemoryScopeMigration:
                     collection.update(ids=to_update_ids, metadatas=to_update_metas)
                     patched += len(to_update_ids)
                 except Exception as e:
-                    self.logger.error(
-                        f"memory_scope 迁移批次更新失败: {e}; ids={to_update_ids}"
-                    )
+                    self.logger.error(f"memory_scope 迁移批次更新失败: {e}; ids={to_update_ids}")
                     failed_update_batches.append((to_update_ids, to_update_metas))
 
-            self.logger.info(
-                f"[memory_scope迁移] 已扫描={scanned} 已补齐={patched} 当前批次={len(ids)}"
-            )
+            self.logger.info(f"[memory_scope迁移] 已扫描={scanned} 已补齐={patched} 当前批次={len(ids)}")
 
             offset += len(ids)
             await asyncio.sleep(sleep_seconds)
@@ -78,18 +74,12 @@ class MemoryScopeMigration:
             try:
                 collection.update(ids=ids_batch, metadatas=metas_batch)
                 patched += len(ids_batch)
-                self.logger.info(
-                    f"[memory_scope迁移] 重试成功，补齐={len(ids_batch)}"
-                )
+                self.logger.info(f"[memory_scope迁移] 重试成功，补齐={len(ids_batch)}")
             except Exception as retry_error:
                 failed_update_ids.extend(ids_batch)
-                self.logger.error(
-                    f"memory_scope 迁移重试失败: {retry_error}; ids={ids_batch}"
-                )
+                self.logger.error(f"memory_scope 迁移重试失败: {retry_error}; ids={ids_batch}")
 
-        self.logger.info(
-            f"[memory_scope迁移] 完成，总扫描={scanned}，总补齐={patched}"
-        )
+        self.logger.info(f"[memory_scope迁移] 完成，总扫描={scanned}，总补齐={patched}")
         if failed_update_ids:
             self.logger.error(
                 f"[memory_scope迁移] 仍有未补齐记录，失败ID数量={len(failed_update_ids)}，ids={failed_update_ids}"

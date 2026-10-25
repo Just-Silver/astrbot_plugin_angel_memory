@@ -12,8 +12,9 @@ import asyncio
 import json
 import time
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 
 from ..models.data_models import BaseMemory
 from ..prompts.prompt_assembler import PromptAssembler
@@ -40,7 +41,7 @@ class RetirementReviewError(Exception):
 class RetirementReviewOutcome:
     """一次淘汰审查的结果。"""
 
-    decisions: Dict[str, str]
+    decisions: dict[str, str]
     prompt: str
     system_prompt: str
     response: str
@@ -73,9 +74,7 @@ class MemoryRetirementReviewer:
         system_prompt = self.build_system_prompt()
         user_prompt = self.build_user_prompt(candidate_list, short_ids)
 
-        provider = (
-            self.context.get_provider_by_id(self.provider_id) if self.context else None
-        )
+        provider = self.context.get_provider_by_id(self.provider_id) if self.context else None
         if provider is None:
             raise RetirementReviewError(
                 f"找不到提供者: {self.provider_id}",
@@ -88,7 +87,7 @@ class MemoryRetirementReviewer:
                 provider.text_chat(prompt=user_prompt, system_prompt=system_prompt),
                 timeout=self.REVIEW_TIMEOUT_SECONDS,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise RetirementReviewError(
                 f"审查调用超时（{int(self.REVIEW_TIMEOUT_SECONDS)} 秒）",
                 prompt=user_prompt,
@@ -128,7 +127,7 @@ class MemoryRetirementReviewer:
             candidate_count=len(candidate_list),
         )
 
-    def _build_short_ids(self, count: int) -> List[str]:
+    def _build_short_ids(self, count: int) -> list[str]:
         return [f"m{index}-{self._id_token}" for index in range(count)]
 
     def build_system_prompt(self) -> str:
@@ -142,11 +141,7 @@ class MemoryRetirementReviewer:
     ) -> str:
         """本次候选清单与输出要求。"""
         listing = self._build_listing(candidates, short_ids)
-        return (
-            "# 记忆清单\n\n"
-            f"{listing}\n\n"
-            "请按以上规则逐条裁决，仅输出 JSON。\n"
-        )
+        return f"# 记忆清单\n\n{listing}\n\n请按以上规则逐条裁决，仅输出 JSON。\n"
 
     def _build_listing(
         self,
@@ -154,7 +149,7 @@ class MemoryRetirementReviewer:
         short_ids: Sequence[str],
     ) -> str:
         now = time.time()
-        blocks: List[str] = []
+        blocks: list[str] = []
         for index, mem in enumerate(candidates):
             blocks.append(f"- id: `{short_ids[index]}`")
             blocks.append(f"  type: `{self._type_label(mem)}`")
@@ -205,7 +200,7 @@ class MemoryRetirementReviewer:
         text: str,
         candidates: Sequence[BaseMemory],
         short_ids: Sequence[str],
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """把模型返回解析为「真实记忆 ID -> 裁决」表；无法解析时抛 ValueError。"""
         data = self._extract_json(text)
         if not isinstance(data, dict):
@@ -215,10 +210,8 @@ class MemoryRetirementReviewer:
         if not isinstance(raw_decisions, list):
             raise ValueError("审查返回缺少 decisions 列表")
 
-        short_id_map = {
-            str(short_ids[index]): str(mem.id) for index, mem in enumerate(candidates)
-        }
-        decisions: Dict[str, str] = {}
+        short_id_map = {str(short_ids[index]): str(mem.id) for index, mem in enumerate(candidates)}
+        decisions: dict[str, str] = {}
         for item in raw_decisions:
             if not isinstance(item, dict):
                 continue
@@ -230,7 +223,7 @@ class MemoryRetirementReviewer:
         return decisions
 
     @staticmethod
-    def _extract_json(text: str) -> Optional[Any]:
+    def _extract_json(text: str) -> Any | None:
         cleaned = str(text or "").strip()
         if cleaned.startswith("```"):
             cleaned = cleaned.strip("`")

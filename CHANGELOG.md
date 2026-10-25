@@ -5,15 +5,11 @@ All notable changes to this plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [1.6.17] - 2026-10-25
+## [Unreleased]
 
 ### Added
 - `feat(note)`: 新增笔记局部编辑与整篇覆盖工具，可在对话中直接改写已有笔记的指定段落，或整篇重写。
 - `feat(webui)`: 笔记页面支持删除、正文预览与上传，删除会同步清理检索索引。
-
-## [Unreleased]
-
-### Added
 - `ci`: 新增 GitHub Actions 质量门禁，分支推送与 PR 自动跑静态检查、字节码编译、单元测试、前端类型检查与构建。
 - `ci`: 新增 tag 驱动的发布流水线，复用 CI 的检查作为前置条件；强制「先在分支发 beta、验证通过后合并 master 发正式版」，并校验 tag、`metadata.yaml`、`CHANGELOG.md` 三处版本一致。
 

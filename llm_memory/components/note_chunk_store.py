@@ -8,8 +8,6 @@
 import sqlite3
 import threading
 import time
-from pathlib import Path
-from typing import Dict, List, Optional
 
 try:
     from astrbot.api import logger
@@ -73,7 +71,7 @@ class NoteChunkStore:
             )
             conn.commit()
 
-    def upsert_chunks(self, file_id: str, source_file_path: str, chunks: List[Dict]) -> int:
+    def upsert_chunks(self, file_id: str, source_file_path: str, chunks: list[dict]) -> int:
         """
         写入切片（先删旧数据再插入新数据）。
 
@@ -131,7 +129,7 @@ class NoteChunkStore:
             conn.commit()
             return cursor.rowcount
 
-    def get_chunks_by_path(self, source_file_path: str) -> List[Dict]:
+    def get_chunks_by_path(self, source_file_path: str) -> list[dict]:
         """
         按路径获取所有切片（按 chunk_index 排序）。
 
@@ -150,7 +148,7 @@ class NoteChunkStore:
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def get_chunks_by_file_id(self, file_id: str) -> List[Dict]:
+    def get_chunks_by_file_id(self, file_id: str) -> list[dict]:
         """
         按 file_id 获取所有切片（按 chunk_index 排序）。
 
@@ -169,7 +167,7 @@ class NoteChunkStore:
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def list_all_chunks(self) -> List[Dict]:
+    def list_all_chunks(self) -> list[dict]:
         """
         获取全部切片，用于全量重建搜索索引。
 
@@ -186,15 +184,11 @@ class NoteChunkStore:
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """获取切片库统计信息"""
         conn = self._get_conn()
-        total_chunks = int(
-            conn.execute("SELECT COUNT(1) FROM chunks").fetchone()[0] or 0
-        )
-        total_files = int(
-            conn.execute("SELECT COUNT(DISTINCT file_id) FROM chunks").fetchone()[0] or 0
-        )
+        total_chunks = int(conn.execute("SELECT COUNT(1) FROM chunks").fetchone()[0] or 0)
+        total_files = int(conn.execute("SELECT COUNT(DISTINCT file_id) FROM chunks").fetchone()[0] or 0)
         return {
             "total_chunks": total_chunks,
             "total_files": total_files,

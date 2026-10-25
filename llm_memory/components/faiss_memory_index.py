@@ -6,7 +6,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import faiss
 import numpy as np
@@ -98,9 +98,7 @@ class FaissTextIndex:
             try:
                 self._index = faiss.read_index(str(self.index_path))
             except Exception as e:
-                self.logger.warning(
-                    f"[FAISS向量索引] 读取失败 index={self.name} 文件={self.index_path} 异常={e}"
-                )
+                self.logger.warning(f"[FAISS向量索引] 读取失败 index={self.name} 文件={self.index_path} 异常={e}")
                 self._index = None
 
     @staticmethod
@@ -127,7 +125,7 @@ class FaissTextIndex:
         faiss.write_index(self._index, str(tmp_path))
         os.replace(str(tmp_path), str(self.index_path))
 
-    def _get_meta_locked(self) -> Dict[str, str]:
+    def _get_meta_locked(self) -> dict[str, str]:
         with self._connect() as conn:
             rows = conn.execute("SELECT key, value FROM index_meta").fetchall()
         return {str(row["key"]): str(row["value"]) for row in rows}
@@ -148,7 +146,7 @@ class FaissTextIndex:
             )
             conn.commit()
 
-    def _is_meta_compatible_locked(self, dimension: Optional[int] = None) -> bool:
+    def _is_meta_compatible_locked(self, dimension: int | None = None) -> bool:
         meta = self._get_meta_locked()
         if not meta:
             return True
@@ -182,8 +180,8 @@ class FaissTextIndex:
         with self._lock:
             self._clear_locked()
 
-    def _allocate_vector_ids_locked(self, item_ids: List[str]) -> Dict[str, int]:
-        existing: Dict[str, int] = {}
+    def _allocate_vector_ids_locked(self, item_ids: list[str]) -> dict[str, int]:
+        existing: dict[str, int] = {}
         with self._connect() as conn:
             placeholders = ",".join("?" for _ in item_ids)
             if placeholders:
@@ -204,7 +202,7 @@ class FaissTextIndex:
                 conn.commit()
         return existing
 
-    def _remove_vector_ids_locked(self, vector_ids: List[int]) -> None:
+    def _remove_vector_ids_locked(self, vector_ids: list[int]) -> None:
         if self._index is None or not vector_ids:
             return
         ids_arr = np.asarray(vector_ids, dtype="int64")
@@ -216,14 +214,14 @@ class FaissTextIndex:
 
     async def _embed_documents(
         self,
-        texts: List[str],
+        texts: list[str],
         *,
         is_query: bool = False,
-        timeout: int | None = None,
-    ) -> Optional[List[List[float]]]:
+        request_timeout: int | None = None,
+    ) -> list[list[float]] | None:
         if not texts:
             return []
-        _timeout = timeout
+        _timeout = request_timeout
         if _timeout is None:
             _timeout = getattr(self, "_search_timeout", 5)
         try:
@@ -236,18 +234,16 @@ class FaissTextIndex:
                     self.embedding_provider.embed_documents(texts),
                     timeout=_timeout,
                 )
-            except asyncio.TimeoutError:
-                self.logger.warning(
-                    f"[FAISS向量索引] 查询向量化超时 index={self.name} timeout={_timeout}s"
-                )
+            except TimeoutError:
+                self.logger.warning(f"[FAISS向量索引] 查询向量化超时 index={self.name} timeout={_timeout}s")
                 return None
             except Exception as e:
                 self.logger.warning(f"[FAISS向量索引] 查询向量化失败 index={self.name} 异常={e}")
                 return None
         return await self.embedding_provider.embed_documents(texts)
 
-    async def upsert_rows(self, rows: List[Dict[str, str]]) -> None:
-        clean_rows: List[Dict[str, str]] = []
+    async def upsert_rows(self, rows: list[dict[str, str]]) -> None:
+        clean_rows: list[dict[str, str]] = []
         seen = set()
         for row in rows or []:
             item_id = str(row.get("id") or "").strip()
@@ -330,7 +326,7 @@ class FaissTextIndex:
             self._write_meta_locked(dimension)
             self._save_index_locked()
 
-    async def rebuild(self, rows: List[Dict[str, str]]) -> Dict[str, int]:
+    async def rebuild(self, rows: list[dict[str, str]]) -> dict[str, int]:
         start = time.time()
         clean_rows = [
             {
@@ -346,7 +342,7 @@ class FaissTextIndex:
             await self.upsert_rows(clean_rows)
         return {"total": len(clean_rows), "cost_ms": int((time.time() - start) * 1000)}
 
-    async def sync_rows(self, rows: List[Dict[str, str]], *, force_rebuild: bool = False) -> Dict[str, int]:
+    async def sync_rows(self, rows: list[dict[str, str]], *, force_rebuild: bool = False) -> dict[str, int]:
         clean_rows = [
             {
                 "id": str(row.get("id") or "").strip(),
@@ -409,7 +405,7 @@ class FaissTextIndex:
             "failed": 0,
         }
 
-    def delete(self, ids: List[str], **_: Any) -> int:
+    def delete(self, ids: list[str], **_: Any) -> int:
         clean_ids = [str(item_id).strip() for item_id in (ids or []) if str(item_id).strip()]
         if not clean_ids:
             return 0
@@ -430,15 +426,15 @@ class FaissTextIndex:
             self._save_index_locked()
         return len(vector_ids)
 
-    def list_ids(self) -> List[str]:
+    def list_ids(self) -> list[str]:
         with self._connect() as conn:
             rows = conn.execute("SELECT item_id FROM index_rows ORDER BY vector_id ASC").fetchall()
         return [str(row["item_id"]) for row in rows]
 
-    def get(self, limit: Optional[int] = None, offset: int = 0, include: Optional[List[str]] = None) -> Dict[str, Any]:
+    def get(self, limit: int | None = None, offset: int = 0, include: list[str] | None = None) -> dict[str, Any]:
         del include
         sql = "SELECT item_id FROM index_rows ORDER BY vector_id ASC"
-        params: Tuple[Any, ...] = ()
+        params: tuple[Any, ...] = ()
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
             params = (max(0, int(limit)), max(0, int(offset)))
@@ -451,9 +447,9 @@ class FaissTextIndex:
         *,
         query: str,
         limit: int = 10,
-        vector: Optional[List[float]] = None,
+        vector: list[float] | None = None,
         similarity_threshold: float = 0.5,
-    ) -> List[Tuple[str, float]]:
+    ) -> list[tuple[str, float]]:
         query_vector = vector
         if query_vector is None:
             embeddings = await self._embed_documents([str(query or "").strip()], is_query=True)
@@ -496,7 +492,7 @@ class FaissTextIndex:
             ).fetchall()
         id_map = {int(row["vector_id"]): str(row["item_id"]) for row in rows}
 
-        recalled: List[Tuple[str, float]] = []
+        recalled: list[tuple[str, float]] = []
         for idx, vector_id in enumerate(flat_vector_ids):
             vector_id = int(vector_id)
             if vector_id < 0:
@@ -522,7 +518,7 @@ class FaissVectorStore:
         embedding_provider: Any,
         index_dir: Path,
         provider_id: str,
-        rerank_provider: Optional[Any] = None,
+        rerank_provider: Any | None = None,
         search_timeout: int | None = None,
     ):
         if embedding_provider is None:
@@ -538,7 +534,7 @@ class FaissVectorStore:
         self._search_timeout = max(5, min(120, _to))
         self.logger = logger
         self.client = f"faiss:{self.index_dir}"
-        self._collections: Dict[str, FaissTextIndex] = {}
+        self._collections: dict[str, FaissTextIndex] = {}
         self._lock = threading.RLock()
         self.index_dir.mkdir(parents=True, exist_ok=True)
         self.model_key = self._build_model_key()
@@ -586,14 +582,14 @@ class FaissVectorStore:
 
     async def embed_documents(
         self,
-        documents: List[str],
+        documents: list[str],
         is_query: bool = False,
-        timeout: int | None = None,
-    ) -> Optional[List[List[float]]]:
+        request_timeout: int | None = None,
+    ) -> list[list[float]] | None:
         texts = [str(doc or "").strip() for doc in (documents or [])]
         if not texts:
             return []
-        _timeout = timeout
+        _timeout = request_timeout
         if _timeout is None:
             _timeout = getattr(self, "_search_timeout", 5)
         try:
@@ -608,7 +604,7 @@ class FaissVectorStore:
                     self.embedding_provider.embed_documents(texts),
                     timeout=_timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self.logger.warning(f"[FAISS向量索引] 查询向量化超时 timeout={_timeout}s")
                 return None
             except Exception as e:
@@ -620,12 +616,12 @@ class FaissVectorStore:
         self,
         document: str,
         is_query: bool = False,
-        timeout: int | None = None,
-    ) -> Optional[List[float]]:
+        request_timeout: int | None = None,
+    ) -> list[float] | None:
         text = str(document or "").strip()
         if not text:
             return None
-        embeddings = await self.embed_documents([text], is_query=is_query, timeout=timeout)
+        embeddings = await self.embed_documents([text], is_query=is_query, request_timeout=request_timeout)
         if embeddings:
             return embeddings[0]
         return None
@@ -633,7 +629,7 @@ class FaissVectorStore:
     async def upsert_memory_index_rows(
         self,
         collection: FaissTextIndex,
-        rows: List[Dict[str, str]],
+        rows: list[dict[str, str]],
     ) -> None:
         await collection.upsert_rows(rows)
 
@@ -642,9 +638,9 @@ class FaissVectorStore:
         collection: FaissTextIndex,
         query: str,
         limit: int = 10,
-        vector: Optional[List[float]] = None,
+        vector: list[float] | None = None,
         similarity_threshold: float = 0.5,
-    ) -> List[Tuple[str, float]]:
+    ) -> list[tuple[str, float]]:
         return await collection.search(
             query=query,
             limit=limit,

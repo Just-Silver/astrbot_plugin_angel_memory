@@ -8,7 +8,7 @@ import math
 import os
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from quart import jsonify, request
 
@@ -16,6 +16,7 @@ try:
     from astrbot.api import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger(__name__)
 
 
@@ -25,7 +26,7 @@ class NotesAPI:
     def __init__(self, plugin_context):
         self.plugin_context = plugin_context
 
-    def _get_central_conn(self) -> Optional[sqlite3.Connection]:
+    def _get_central_conn(self) -> sqlite3.Connection | None:
         path_manager = self.plugin_context.get_path_manager()
         db_path = str(path_manager.get_simple_memory_db_path())
         if not os.path.exists(db_path):
@@ -38,18 +39,12 @@ class NotesAPI:
         path_manager = self.plugin_context.get_path_manager()
         return path_manager.get_raw_dir()
 
-    def _load_note_registry_map(self, paths: List[str], file_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    def _load_note_registry_map(self, paths: list[str], file_ids: list[str]) -> dict[str, dict[str, Any]]:
         """按路径和 file_id 读取笔记注册表，用于补齐切片搜索结果。"""
-        normalized_paths = sorted({
-            str(path or "").replace("\\", "/").strip().lstrip("/")
-            for path in paths
-            if str(path or "").strip()
-        })
-        normalized_file_ids = sorted({
-            str(file_id or "").strip()
-            for file_id in file_ids
-            if str(file_id or "").strip()
-        })
+        normalized_paths = sorted(
+            {str(path or "").replace("\\", "/").strip().lstrip("/") for path in paths if str(path or "").strip()}
+        )
+        normalized_file_ids = sorted({str(file_id or "").strip() for file_id in file_ids if str(file_id or "").strip()})
         if not normalized_paths and not normalized_file_ids:
             return {}
 
@@ -58,8 +53,8 @@ class NotesAPI:
             return {}
 
         try:
-            clauses: List[str] = []
-            params: List[Any] = []
+            clauses: list[str] = []
+            params: list[Any] = []
             if normalized_paths:
                 placeholders = ",".join(["?" for _ in normalized_paths])
                 clauses.append(f"source_file_path IN ({placeholders})")
@@ -91,7 +86,7 @@ class NotesAPI:
         finally:
             conn.close()
 
-        result: Dict[str, Dict[str, Any]] = {}
+        result: dict[str, dict[str, Any]] = {}
         for row in rows:
             item = dict(row)
             path = str(item.get("source_file_path") or "").replace("\\", "/").strip().lstrip("/")
@@ -125,7 +120,7 @@ class NotesAPI:
                         max_chunks_per_file=1,
                     )
                     has_more = len(results) > requested_end
-                    paged = results[offset:offset + page_size]
+                    paged = results[offset : offset + page_size]
                     registry_map = self._load_note_registry_map(
                         [str(r.get("source_file_path") or "") for r in paged],
                         [str(r.get("file_id") or "") for r in paged],
@@ -135,41 +130,43 @@ class NotesAPI:
                         source_file_path = str(r.get("source_file_path") or "").replace("\\", "/").strip().lstrip("/")
                         file_id = str(r.get("file_id") or "").strip()
                         registry = (
-                            registry_map.get(f"path:{source_file_path}")
-                            or registry_map.get(f"file:{file_id}")
-                            or {}
+                            registry_map.get(f"path:{source_file_path}") or registry_map.get(f"file:{file_id}") or {}
                         )
-                        items.append({
-                            "source_id": registry.get("source_id", ""),
-                            "note_short_id": int(registry.get("note_short_id", -1) or -1),
-                            "source_file_path": source_file_path,
-                            "file_id": file_id,
-                            "heading_h1": registry.get("heading_h1", ""),
-                            "heading_h2": registry.get("heading_h2", ""),
-                            "heading_h3": registry.get("heading_h3", ""),
-                            "heading_h4": registry.get("heading_h4", ""),
-                            "heading_h5": registry.get("heading_h5", ""),
-                            "heading_h6": registry.get("heading_h6", ""),
-                            "total_lines": int(registry.get("total_lines", 0) or 0),
-                            "updated_at": registry.get("updated_at"),
-                            "tags_text": registry.get("tags_text", ""),
-                            "chunk_index": r.get("chunk_index", 0),
-                            "line_start": r.get("line_start", 0),
-                            "line_end": r.get("line_end", 0),
-                            "content": str(r.get("content") or "")[:200],
-                            "score": float(r.get("score", 0.0)),
-                        })
+                        items.append(
+                            {
+                                "source_id": registry.get("source_id", ""),
+                                "note_short_id": int(registry.get("note_short_id", -1) or -1),
+                                "source_file_path": source_file_path,
+                                "file_id": file_id,
+                                "heading_h1": registry.get("heading_h1", ""),
+                                "heading_h2": registry.get("heading_h2", ""),
+                                "heading_h3": registry.get("heading_h3", ""),
+                                "heading_h4": registry.get("heading_h4", ""),
+                                "heading_h5": registry.get("heading_h5", ""),
+                                "heading_h6": registry.get("heading_h6", ""),
+                                "total_lines": int(registry.get("total_lines", 0) or 0),
+                                "updated_at": registry.get("updated_at"),
+                                "tags_text": registry.get("tags_text", ""),
+                                "chunk_index": r.get("chunk_index", 0),
+                                "line_start": r.get("line_start", 0),
+                                "line_end": r.get("line_end", 0),
+                                "content": str(r.get("content") or "")[:200],
+                                "score": float(r.get("score", 0.0)),
+                            }
+                        )
                     total = offset + len(items) + (1 if has_more else 0)
-                    return jsonify({
-                        "items": items,
-                        "total": total,
-                        "page": page,
-                        "page_size": page_size,
-                        "total_pages": math.ceil(total / page_size) if total > 0 else 1,
-                        "search_mode": "chunk",
-                        "has_more": has_more,
-                        "total_is_estimated": has_more or search_limit >= self.KEYWORD_SEARCH_MAX_CANDIDATES,
-                    })
+                    return jsonify(
+                        {
+                            "items": items,
+                            "total": total,
+                            "page": page,
+                            "page_size": page_size,
+                            "total_pages": math.ceil(total / page_size) if total > 0 else 1,
+                            "search_mode": "chunk",
+                            "has_more": has_more,
+                            "total_is_estimated": has_more or search_limit >= self.KEYWORD_SEARCH_MAX_CANDIDATES,
+                        }
+                    )
                 except Exception as e:
                     logger.warning(f"切片搜索失败，降级到 SQL 浏览: {e}")
 
@@ -179,12 +176,10 @@ class NotesAPI:
 
         try:
             where_sql = ""
-            params: List[Any] = []
+            params: list[Any] = []
             if keyword.strip():
                 kw = keyword.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-                where_sql = (
-                    "WHERE nir.source_file_path LIKE ? ESCAPE '\\'"
-                )
+                where_sql = "WHERE nir.source_file_path LIKE ? ESCAPE '\\'"
                 like = f"%{kw}%"
                 params.append(like)
 
@@ -220,13 +215,15 @@ class NotesAPI:
             cur.execute(sql, params + [page_size, offset])
             items = [dict(row) for row in cur.fetchall()]
 
-            return jsonify({
-                "items": items,
-                "total": total,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": math.ceil(total / page_size) if total > 0 else 1,
-            })
+            return jsonify(
+                {
+                    "items": items,
+                    "total": total,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": math.ceil(total / page_size) if total > 0 else 1,
+                }
+            )
         except Exception as e:
             return jsonify({"items": [], "total": 0, "error": str(e)}), 500
         finally:
@@ -274,16 +271,18 @@ class NotesAPI:
 
             actual_start = min(max(1, offset), total_lines) if total_lines > 0 else 0
             actual_end = min(actual_start + max(1, limit) - 1, total_lines) if total_lines > 0 else 0
-            content = "\n".join(lines[actual_start - 1:actual_end]) if total_lines > 0 else ""
+            content = "\n".join(lines[actual_start - 1 : actual_end]) if total_lines > 0 else ""
 
-            return jsonify({
-                "content": content,
-                "note_short_id": note_short_id,
-                "source_file_path": rel_path,
-                "total_lines": total_lines,
-                "actual_start_line": actual_start,
-                "actual_end_line": actual_end,
-            })
+            return jsonify(
+                {
+                    "content": content,
+                    "note_short_id": note_short_id,
+                    "source_file_path": rel_path,
+                    "total_lines": total_lines,
+                    "actual_start_line": actual_start,
+                    "actual_end_line": actual_end,
+                }
+            )
         except Exception as e:
             return jsonify({"error": str(e)}), 500
         finally:
@@ -343,15 +342,17 @@ class NotesAPI:
             results = await search_engine.search_async(query=query, limit=limit)
             items = []
             for r in results:
-                items.append({
-                    "source_file_path": r.get("source_file_path", ""),
-                    "file_id": r.get("file_id", ""),
-                    "chunk_index": r.get("chunk_index", 0),
-                    "line_start": r.get("line_start", 0),
-                    "line_end": r.get("line_end", 0),
-                    "content": str(r.get("content") or ""),
-                    "score": float(r.get("score", 0.0)),
-                })
+                items.append(
+                    {
+                        "source_file_path": r.get("source_file_path", ""),
+                        "file_id": r.get("file_id", ""),
+                        "chunk_index": r.get("chunk_index", 0),
+                        "line_start": r.get("line_start", 0),
+                        "line_end": r.get("line_end", 0),
+                        "content": str(r.get("content") or ""),
+                        "score": float(r.get("score", 0.0)),
+                    }
+                )
             return jsonify({"items": items, "total": len(items), "query": query})
         except Exception as e:
             return jsonify({"error": str(e)}), 500

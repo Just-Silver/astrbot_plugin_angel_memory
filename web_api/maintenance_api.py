@@ -8,8 +8,7 @@ import json
 import os
 import sqlite3
 import time
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from quart import jsonify, request
 
@@ -17,6 +16,7 @@ try:
     from astrbot.api import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger(__name__)
 
 
@@ -24,7 +24,7 @@ class MaintenanceAPI:
     def __init__(self, plugin_context):
         self.plugin_context = plugin_context
 
-    def _get_central_conn(self) -> Optional[sqlite3.Connection]:
+    def _get_central_conn(self) -> sqlite3.Connection | None:
         path_manager = self.plugin_context.get_path_manager()
         db_path = str(path_manager.get_simple_memory_db_path())
         if not os.path.exists(db_path):
@@ -38,12 +38,12 @@ class MaintenanceAPI:
         path_manager = self.plugin_context.get_path_manager()
         memory_center_dir = path_manager.get_memory_center_dir()
         state_path = memory_center_dir / "maintenance_state.json"
-        result: Dict[str, Any] = {"state": None, "backups": []}
+        result: dict[str, Any] = {"state": None, "backups": []}
 
         # 读取 maintenance_state.json
         if os.path.exists(str(state_path)):
             try:
-                with open(str(state_path), "r", encoding="utf-8") as f:
+                with open(str(state_path), encoding="utf-8") as f:
                     result["state"] = json.load(f)
             except Exception as e:
                 result["state_error"] = str(e)
@@ -57,11 +57,13 @@ class MaintenanceAPI:
                     full_path = os.path.join(str(backup_dir), name)
                     if os.path.isfile(full_path):
                         stat = os.stat(full_path)
-                        backups.append({
-                            "name": name,
-                            "size": stat.st_size,
-                            "modified_at": stat.st_mtime,
-                        })
+                        backups.append(
+                            {
+                                "name": name,
+                                "size": stat.st_size,
+                                "modified_at": stat.st_mtime,
+                            }
+                        )
                 result["backups"] = backups[:10]
             except Exception as e:
                 result["backups_error"] = str(e)
@@ -108,22 +110,21 @@ class MaintenanceAPI:
 
         try:
             cur = conn.cursor()
-            records = [dict(row) for row in cur.execute(
-                """
+            records = [
+                dict(row)
+                for row in cur.execute(
+                    """
                 SELECT id, memory_type, judgment, reasoning, strength, is_active,
                        useful_count, useful_score, last_recalled_at, last_decay_at,
                        memory_scope, created_at, updated_at
                 FROM memory_records ORDER BY created_at DESC
                 """
-            ).fetchall()]
+                ).fetchall()
+            ]
 
-            tags = [dict(row) for row in cur.execute(
-                "SELECT id, name FROM global_tags ORDER BY id ASC"
-            ).fetchall()]
+            tags = [dict(row) for row in cur.execute("SELECT id, name FROM global_tags ORDER BY id ASC").fetchall()]
 
-            rel = [dict(row) for row in cur.execute(
-                "SELECT memory_id, tag_id FROM memory_tag_rel"
-            ).fetchall()]
+            rel = [dict(row) for row in cur.execute("SELECT memory_id, tag_id FROM memory_tag_rel").fetchall()]
 
             snapshot = {
                 "schema_version": 1,
@@ -188,11 +189,16 @@ class MaintenanceAPI:
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
-                            record["id"], record.get("memory_type", ""),
-                            record.get("judgment", ""), record.get("reasoning", ""),
-                            record.get("strength", 50), record.get("is_active", 0),
-                            record.get("useful_count", 0), record.get("useful_score", 0.0),
-                            record.get("last_recalled_at"), record.get("last_decay_at"),
+                            record["id"],
+                            record.get("memory_type", ""),
+                            record.get("judgment", ""),
+                            record.get("reasoning", ""),
+                            record.get("strength", 50),
+                            record.get("is_active", 0),
+                            record.get("useful_count", 0),
+                            record.get("useful_score", 0.0),
+                            record.get("last_recalled_at"),
+                            record.get("last_decay_at"),
                             record.get("memory_scope", "public"),
                             record.get("created_at", time.time()),
                             record.get("updated_at", time.time()),
@@ -213,12 +219,14 @@ class MaintenanceAPI:
                     pass
 
             conn.commit()
-            return jsonify({
-                "success": True,
-                "inserted": inserted,
-                "skipped": skipped,
-                "failed": failed,
-            })
+            return jsonify(
+                {
+                    "success": True,
+                    "inserted": inserted,
+                    "skipped": skipped,
+                    "failed": failed,
+                }
+            )
         except Exception as e:
             return jsonify({"error": str(e)}), 500
         finally:

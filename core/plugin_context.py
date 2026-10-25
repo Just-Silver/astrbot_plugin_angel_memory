@@ -5,10 +5,10 @@
 让下游服务只需要依赖PluginContext即可获得所有必要资源。
 """
 
-from typing import Any, Dict, Optional, Tuple
-from pathlib import Path
-import re
 import json
+import re
+from pathlib import Path
+from typing import Any
 
 try:
     from astrbot.api import logger
@@ -17,8 +17,8 @@ except ImportError:
 
     logger = logging.getLogger(__name__)
 
-from ..llm_memory.utils.path_manager import PathManager
 from ..llm_memory.components.embedding_provider import EmbeddingProvider
+from ..llm_memory.utils.path_manager import PathManager
 
 
 class PluginContext:
@@ -32,9 +32,7 @@ class PluginContext:
     - 供应商信息
     """
 
-    def __init__(
-        self, astrbot_context, config: Dict[str, Any], base_data_dir: str = None
-    ):
+    def __init__(self, astrbot_context, config: dict[str, Any], base_data_dir: str = None):
         """
         初始化插件上下文
 
@@ -49,22 +47,20 @@ class PluginContext:
         self.logger = logger
 
         # 同步资源
-        self.path_manager: Optional[PathManager] = None
+        self.path_manager: PathManager | None = None
         # 异步资源，由ComponentFactory创建后设置
-        self.embedding_provider: Optional[EmbeddingProvider] = None
-        self.vector_store: Optional[Any] = None
+        self.embedding_provider: EmbeddingProvider | None = None
+        self.vector_store: Any | None = None
         # ComponentFactory 引用，用于获取组件
         self._component_factory = None
         self._scope_name_pattern = re.compile(r"^[a-zA-Z0-9\u4e00-\u9fff_-]+$")
-        self._conversation_scope_map: Dict[str, str] = {}
+        self._conversation_scope_map: dict[str, str] = {}
 
         # 初始化插件资源
         self._setup_plugin_resources()
         self._refresh_scope_map()
 
-        self.logger.info(
-            f"PluginContext初始化完成 (提供商: {self.get_embedding_provider_id()})"
-        )
+        self.logger.info(f"PluginContext初始化完成 (提供商: {self.get_embedding_provider_id()})")
 
     def _setup_plugin_resources(self):
         """初始化插件专用资源"""
@@ -79,9 +75,7 @@ class PluginContext:
             self.path_manager = PathManager()
             self.path_manager.set_provider(embedding_provider_id, base_data_dir)
 
-            self.logger.debug(
-                f"插件资源初始化完成: 提供商={embedding_provider_id}, 数据目录={base_data_dir}"
-            )
+            self.logger.debug(f"插件资源初始化完成: 提供商={embedding_provider_id}, 数据目录={base_data_dir}")
 
         except Exception as e:
             self.logger.error(f"插件资源初始化失败: {e}")
@@ -230,32 +224,24 @@ class PluginContext:
                 try:
                     raw_map = json.loads(raw_text)
                 except Exception:
-                    self.logger.warning(
-                        "conversation_scope_map JSON 解析失败，已忽略并回退为空。"
-                    )
+                    self.logger.warning("conversation_scope_map JSON 解析失败，已忽略并回退为空。")
                     raw_map = {}
         if not isinstance(raw_map, dict):
-            self.logger.warning(
-                "conversation_scope_map 配置类型非法（需为 object），已忽略并回退为空。"
-            )
+            self.logger.warning("conversation_scope_map 配置类型非法（需为 object），已忽略并回退为空。")
             self._conversation_scope_map = {}
             return
 
-        validated: Dict[str, str] = {}
+        validated: dict[str, str] = {}
         for raw_key, raw_scope in raw_map.items():
             conversation_id = str(raw_key).strip()
             scope_name = str(raw_scope).strip()
 
             if not conversation_id:
-                self.logger.warning(
-                    "conversation_scope_map 存在空会话ID键，已忽略该映射。"
-                )
+                self.logger.warning("conversation_scope_map 存在空会话ID键，已忽略该映射。")
                 continue
 
             if not scope_name:
-                self.logger.warning(
-                    f"conversation_scope_map[{conversation_id}] 为空，已忽略该映射。"
-                )
+                self.logger.warning(f"conversation_scope_map[{conversation_id}] 为空，已忽略该映射。")
                 continue
 
             if not self._scope_name_pattern.fullmatch(scope_name):
@@ -268,20 +254,16 @@ class PluginContext:
 
         self._conversation_scope_map = validated
 
-    def get_conversation_scope_map(self) -> Dict[str, str]:
+    def get_conversation_scope_map(self) -> dict[str, str]:
         """获取已校验的会话映射。"""
         return self._conversation_scope_map.copy()
 
     def resolve_memory_scope(self, conversation_id: str, persona_name: str = "") -> str:
         """解析当前记忆域：优先人格名键，其次会话ID键，未命中返回 public。"""
-        scope, _, _ = self.resolve_memory_scope_with_source(
-            conversation_id, persona_name=persona_name
-        )
+        scope, _, _ = self.resolve_memory_scope_with_source(conversation_id, persona_name=persona_name)
         return scope
 
-    def resolve_memory_scope_with_source(
-        self, conversation_id: str, persona_name: str = ""
-    ) -> Tuple[str, str, str]:
+    def resolve_memory_scope_with_source(self, conversation_id: str, persona_name: str = "") -> tuple[str, str, str]:
         """解析记忆域并返回命中来源：scope, matched_by, matched_key。"""
         normalized_id = str(conversation_id or "").strip()
         if not normalized_id:
@@ -402,10 +384,10 @@ class PluginContext:
 
     def get_config(
         self,
-        key: Optional[str] = None,
+        key: str | None = None,
         default: Any = None,
         *,
-        umo: Optional[str] = None,
+        umo: str | None = None,
     ) -> Any:
         """
         获取配置值。
@@ -441,7 +423,7 @@ class PluginContext:
             return self.config.copy()
         return self.config.get(key, default)
 
-    def get_all_config(self) -> Dict[str, Any]:
+    def get_all_config(self) -> dict[str, Any]:
         """获取所有配置"""
         return self.config.copy()
 
@@ -483,11 +465,11 @@ class PluginContext:
         """获取当前供应商ID"""
         return self.path_manager.get_current_provider()
 
-    def get_embedding_provider(self) -> Optional[EmbeddingProvider]:
+    def get_embedding_provider(self) -> EmbeddingProvider | None:
         """获取由ComponentFactory创建的嵌入提供商实例"""
         return self.embedding_provider
 
-    def get_vector_store(self) -> Optional[Any]:
+    def get_vector_store(self) -> Any | None:
         """获取由ComponentFactory创建的向量索引实例"""
         return self.vector_store
 
@@ -532,7 +514,7 @@ class PluginContext:
 
     # === 更新方法 ===
 
-    def update_config(self, new_config: Dict[str, Any]):
+    def update_config(self, new_config: dict[str, Any]):
         """更新配置"""
         self.config.update(new_config)
         self._refresh_scope_map()
@@ -564,9 +546,7 @@ class PluginContextFactory:
     """插件上下文工厂 - 提供统一的Context创建接口"""
 
     @staticmethod
-    def create_from_initialization(
-        astrbot_context, config: Dict[str, Any], base_data_dir: str = None
-    ) -> PluginContext:
+    def create_from_initialization(astrbot_context, config: dict[str, Any], base_data_dir: str = None) -> PluginContext:
         """
         从初始化创建PluginContext
 
@@ -581,7 +561,7 @@ class PluginContextFactory:
         return PluginContext(astrbot_context, config, base_data_dir)
 
     @staticmethod
-    def create_from_event(event, base_config: Dict[str, Any]) -> PluginContext:
+    def create_from_event(event, base_config: dict[str, Any]) -> PluginContext:
         """
         从事件创建PluginContext
 
@@ -595,7 +575,7 @@ class PluginContextFactory:
         return PluginContext(event.context, base_config)
 
     @staticmethod
-    def create_mock_context(config: Dict[str, Any] = None) -> PluginContext:
+    def create_mock_context(config: dict[str, Any] = None) -> PluginContext:
         """
         创建模拟的PluginContext（用于测试）
 

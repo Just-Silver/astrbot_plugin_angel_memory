@@ -10,14 +10,13 @@ LLM记忆系统的数据模型 - 统一的三元组记忆体系。
 - 情感记忆：存储"AI感觉怎么样"
 """
 
-from enum import Enum
-from typing import List, Optional
-import uuid
-import time
 import json
+import time
+import uuid
+from enum import Enum
+from typing import Optional
 
 from ..config.system_config import KNOWLEDGE_CORE_SEPARATOR
-
 
 # ===== 记忆类型枚举 =====
 
@@ -71,13 +70,13 @@ class BaseMemory:
         memory_type: MemoryType,
         judgment: str,
         reasoning: str,
-        tags: List[str],
+        tags: list[str],
         id: str = None,
         strength: int = 1,
         is_active: bool = False,
         created_at: float = None,
         is_consolidated: bool = None,  # 废弃字段，仅保留兼容性
-        state_snapshot: dict = None,   # 灵魂状态快照
+        state_snapshot: dict = None,  # 灵魂状态快照
         memory_scope: str = "public",  # 记忆分类域，默认公共
         useful_count: int = 0,
         useful_score: float = 0.0,
@@ -91,7 +90,7 @@ class BaseMemory:
         self.strength = strength
         self.is_active = is_active  # True=主动记忆(不衰减), False=被动记忆(会衰减)
         self.created_at = created_at or time.time()  # 自动记录创建时间
-        self.state_snapshot = state_snapshot or {} # 记录生成该记忆时的灵魂状态
+        self.state_snapshot = state_snapshot or {}  # 记录生成该记忆时的灵魂状态
         self.memory_scope = memory_scope or "public"
         self.useful_count = int(useful_count or 0)
         self.useful_score = float(useful_score or 0.0)
@@ -139,7 +138,7 @@ class BaseMemory:
             return {}
 
     @staticmethod
-    def _parse_tags(tags_data) -> List[str]:
+    def _parse_tags(tags_data) -> list[str]:
         """解析tags字段（可能是字符串或列表）"""
         if isinstance(tags_data, str):
             return [tag.strip() for tag in tags_data.split(",") if tag.strip()]
@@ -172,12 +171,8 @@ class BaseMemory:
         tags = cls._parse_tags(data.get("tags", []))
 
         # 兼容旧字段名
-        judgment = data.get(
-            "judgment", data.get("content", data.get("emotion_type", ""))
-        )
-        reasoning = data.get(
-            "reasoning", data.get("context", data.get("trigger_event", ""))
-        )
+        judgment = data.get("judgment", data.get("content", data.get("emotion_type", "")))
+        reasoning = data.get("reasoning", data.get("context", data.get("trigger_event", "")))
 
         try:
             return cls(

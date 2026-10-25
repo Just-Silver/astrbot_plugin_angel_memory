@@ -60,11 +60,11 @@ if PACKAGE_NAME not in sys.modules:
     package.__path__ = [str(Path(__file__).resolve().parents[1])]
     sys.modules[PACKAGE_NAME] = package
 
-from astrbot_plugin_angel_memory.core.services.injection_service import (
-    DeepMindInjectionService,
-)
 from astrbot_plugin_angel_memory.core.memory_runtime.simple_memory_runtime import (
     SimpleMemoryRuntime,
+)
+from astrbot_plugin_angel_memory.core.services.injection_service import (
+    DeepMindInjectionService,
 )
 from astrbot_plugin_angel_memory.core.session_memory import SessionMemoryManager
 from astrbot_plugin_angel_memory.core.utils.memory_injector import MemoryInjector
@@ -105,10 +105,15 @@ class _Runtime:
                 continue
             if memory_scope == "public" and memory.memory_scope != "public":
                 continue
-            if memory_scope and memory_scope != "public" and memory.memory_scope not in {
-                memory_scope,
-                "public",
-            }:
+            if (
+                memory_scope
+                and memory_scope != "public"
+                and memory.memory_scope
+                not in {
+                    memory_scope,
+                    "public",
+                }
+            ):
                 continue
             result.append(memory)
         return result

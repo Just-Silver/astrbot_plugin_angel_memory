@@ -34,13 +34,11 @@ from astrbot_plugin_angel_memory.core.utils.small_model_prompt_builder import (
 
 
 def test_reflection_prompts_split_guide_and_data():
-    system_prompt, user_prompt = (
-        SmallModelPromptBuilder.build_post_hoc_analysis_prompts(
-            historical_query="红豆：你今天好吗",
-            main_llm_response="我很好",
-            raw_memories=[],
-            memory_id_mapping={},
-        )
+    system_prompt, user_prompt = SmallModelPromptBuilder.build_post_hoc_analysis_prompts(
+        historical_query="红豆：你今天好吗",
+        main_llm_response="我很好",
+        raw_memories=[],
+        memory_id_mapping={},
     )
 
     assert system_prompt.strip()

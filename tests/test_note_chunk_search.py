@@ -6,13 +6,13 @@ import pytest
 
 from llm_memory.components.note_chunk_search import (
     NoteChunkSearchEngine,
-    normalize_search_text,
-    iter_cjk_fragments,
-    select_required_cjk_ngrams,
-    tokenize_for_index,
     _build_all_terms_query,
     _build_any_terms_query,
     _resolve_hit_limit,
+    iter_cjk_fragments,
+    normalize_search_text,
+    select_required_cjk_ngrams,
+    tokenize_for_index,
 )
 
 
@@ -92,7 +92,6 @@ class TestQueryBuilding:
 
 
 try:
-    import tantivy
     HAS_TANTIVY = True
 except Exception:
     HAS_TANTIVY = False
@@ -107,7 +106,12 @@ class TestSearchEngine:
         engine = NoteChunkSearchEngine(index_dir=str(tmp_path))
 
         chunks = [
-            {"chunk_index": 1, "line_start": 0, "line_end": 3, "content": "notes/cooking/红烧肉做法.md\n# 红烧肉做法\n材料：五花肉、酱油、冰糖"},
+            {
+                "chunk_index": 1,
+                "line_start": 0,
+                "line_end": 3,
+                "content": "notes/cooking/红烧肉做法.md\n# 红烧肉做法\n材料：五花肉、酱油、冰糖",
+            },
             {"chunk_index": 2, "line_start": 4, "line_end": 6, "content": "步骤：先焯水，再炒糖色，最后炖煮"},
         ]
         engine.index_chunks("file_001", "notes/cooking/红烧肉做法.md", chunks)
@@ -121,7 +125,12 @@ class TestSearchEngine:
         engine = NoteChunkSearchEngine(index_dir=str(tmp_path))
 
         chunks = [
-            {"chunk_index": 1, "line_start": 0, "line_end": 2, "content": "notes/travel/日本旅行.md\n# 东京攻略\n新宿是购物天堂"},
+            {
+                "chunk_index": 1,
+                "line_start": 0,
+                "line_end": 2,
+                "content": "notes/travel/日本旅行.md\n# 东京攻略\n新宿是购物天堂",
+            },
         ]
         engine.index_chunks("file_002", "notes/travel/日本旅行.md", chunks)
 
@@ -135,13 +144,15 @@ class TestSearchEngine:
         # 文件1：3个切片
         for i in range(1, 4):
             engine.index_chunks(
-                "file_a", "a.md",
+                "file_a",
+                "a.md",
                 [{"chunk_index": i, "line_start": i, "line_end": i, "content": f"猫咪的故事第{i}章"}],
             )
         # 文件2：3个切片
         for i in range(1, 4):
             engine.index_chunks(
-                "file_b", "b.md",
+                "file_b",
+                "b.md",
                 [{"chunk_index": i, "line_start": i, "line_end": i, "content": f"猫咪的冒险第{i}章"}],
             )
 
@@ -156,13 +167,21 @@ class TestSearchEngine:
         """多词合并后仍按文件限制切片数"""
         engine = NoteChunkSearchEngine(index_dir=str(tmp_path))
 
-        engine.index_chunks("file_a", "a.md", [
-            {"chunk_index": 1, "line_start": 1, "line_end": 1, "content": "alpha only"},
-            {"chunk_index": 2, "line_start": 2, "line_end": 2, "content": "beta only"},
-        ])
-        engine.index_chunks("file_b", "b.md", [
-            {"chunk_index": 1, "line_start": 1, "line_end": 1, "content": "alpha beta together"},
-        ])
+        engine.index_chunks(
+            "file_a",
+            "a.md",
+            [
+                {"chunk_index": 1, "line_start": 1, "line_end": 1, "content": "alpha only"},
+                {"chunk_index": 2, "line_start": 2, "line_end": 2, "content": "beta only"},
+            ],
+        )
+        engine.index_chunks(
+            "file_b",
+            "b.md",
+            [
+                {"chunk_index": 1, "line_start": 1, "line_end": 1, "content": "alpha beta together"},
+            ],
+        )
 
         results = engine.search("alpha beta", limit=10, max_chunks_per_file=1)
 
@@ -193,14 +212,32 @@ class TestSearchEngine:
         engine = NoteChunkSearchEngine(index_dir=str(tmp_path))
 
         # 先写入一些数据
-        engine.index_chunks("old", "old.md", [
-            {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "旧数据"},
-        ])
+        engine.index_chunks(
+            "old",
+            "old.md",
+            [
+                {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "旧数据"},
+            ],
+        )
 
         # 全量重建
         all_chunks = [
-            {"file_id": "new1", "source_file_path": "new1.md", "chunk_index": 1, "line_start": 0, "line_end": 1, "content": "新数据一"},
-            {"file_id": "new2", "source_file_path": "new2.md", "chunk_index": 1, "line_start": 0, "line_end": 1, "content": "新数据二"},
+            {
+                "file_id": "new1",
+                "source_file_path": "new1.md",
+                "chunk_index": 1,
+                "line_start": 0,
+                "line_end": 1,
+                "content": "新数据一",
+            },
+            {
+                "file_id": "new2",
+                "source_file_path": "new2.md",
+                "chunk_index": 1,
+                "line_start": 0,
+                "line_end": 1,
+                "content": "新数据二",
+            },
         ]
         count = engine.rebuild_all(all_chunks)
         assert count == 2
@@ -222,13 +259,21 @@ class TestSearchEngine:
         engine = NoteChunkSearchEngine(index_dir=str(tmp_path))
 
         # 文件1：同时包含"红烧"和"肉"
-        engine.index_chunks("exact", "exact.md", [
-            {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "红烧肉的做法很简单"},
-        ])
+        engine.index_chunks(
+            "exact",
+            "exact.md",
+            [
+                {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "红烧肉的做法很简单"},
+            ],
+        )
         # 文件2：只包含"红烧"
-        engine.index_chunks("partial", "partial.md", [
-            {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "红烧茄子也很好吃"},
-        ])
+        engine.index_chunks(
+            "partial",
+            "partial.md",
+            [
+                {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "红烧茄子也很好吃"},
+            ],
+        )
 
         results = engine.search("红烧肉", limit=10)
         assert len(results) >= 1
@@ -248,12 +293,20 @@ class TestSearchEngine:
                 ]
 
         engine = NoteChunkSearchEngine(index_dir=str(tmp_path), rerank_provider=AsyncReranker())
-        engine.index_chunks("a", "a.md", [
-            {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "猫咪普通记录"},
-        ])
-        engine.index_chunks("b", "b.md", [
-            {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "猫咪重要记录"},
-        ])
+        engine.index_chunks(
+            "a",
+            "a.md",
+            [
+                {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "猫咪普通记录"},
+            ],
+        )
+        engine.index_chunks(
+            "b",
+            "b.md",
+            [
+                {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "猫咪重要记录"},
+            ],
+        )
 
         baseline = engine.search("猫咪", limit=2)
         assert len(baseline) == 2
@@ -280,12 +333,20 @@ class TestSearchEngine:
                 ]
 
         engine = NoteChunkSearchEngine(index_dir=str(tmp_path), rerank_provider=ObjectReranker())
-        engine.index_chunks("a", "a.md", [
-            {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "猫咪普通记录"},
-        ])
-        engine.index_chunks("b", "b.md", [
-            {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "猫咪重要记录"},
-        ])
+        engine.index_chunks(
+            "a",
+            "a.md",
+            [
+                {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "猫咪普通记录"},
+            ],
+        )
+        engine.index_chunks(
+            "b",
+            "b.md",
+            [
+                {"chunk_index": 1, "line_start": 0, "line_end": 1, "content": "猫咪重要记录"},
+            ],
+        )
 
         baseline = engine.search("猫咪", limit=2)
         assert len(baseline) == 2

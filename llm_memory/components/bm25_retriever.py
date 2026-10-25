@@ -11,9 +11,8 @@ Tantivy BM25 检索组件（模块化，可单独测试）。
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
-import re
 
 try:
     from astrbot.api import logger
@@ -22,9 +21,9 @@ except ImportError:
 
     logger = logging.getLogger(__name__)
 
-from .note_chunk_search import iter_cjk_fragments, normalize_search_text, tokenize_for_index
-
 import tantivy
+
+from .note_chunk_search import iter_cjk_fragments, tokenize_for_index
 
 
 class TantivyBM25Retriever:
@@ -88,7 +87,7 @@ class TantivyBM25Retriever:
     def _normalize_token(token: str) -> str:
         return str(token or "").strip().lower()
 
-    def _tokenize(self, text: str) -> List[str]:
+    def _tokenize(self, text: str) -> list[str]:
         """使用 CJK bigram 分词（无词典依赖）"""
         return iter_cjk_fragments(text, include_unigram=True, max_ngram=2)
 
@@ -102,7 +101,7 @@ class TantivyBM25Retriever:
         return self._pretokenized_text(source)
 
     @staticmethod
-    def _score_normalize(rows: List[Dict]) -> List[Dict]:
+    def _score_normalize(rows: list[dict]) -> list[dict]:
         if not rows:
             return []
         max_score = 0.0
@@ -110,7 +109,7 @@ class TantivyBM25Retriever:
             score = float(row.get("bm25_score", 0.0))
             if score > max_score:
                 max_score = score
-        normalized_rows: List[Dict] = []
+        normalized_rows: list[dict] = []
         for row in rows:
             score = float(row.get("bm25_score", 0.0))
             normalized = (score / max_score) if max_score > 0.0 else 0.0
@@ -120,7 +119,7 @@ class TantivyBM25Retriever:
         return normalized_rows
 
     @staticmethod
-    def _extract_doc_values(doc: object, field_name: str) -> List[str]:
+    def _extract_doc_values(doc: object, field_name: str) -> list[str]:
         """
         兼容不同 tantivy.Document Python 绑定形态：
         - dict-like（.get）
@@ -198,7 +197,7 @@ class TantivyBM25Retriever:
         writer.delete_documents("item_id", str(item_id))
         writer.commit()
 
-    def rebuild_memory(self, rows: List[Dict]) -> None:
+    def rebuild_memory(self, rows: list[dict]) -> None:
         writer = self._memory_index.writer()
         writer.delete_all_documents()
         for row in rows:
@@ -220,9 +219,13 @@ class TantivyBM25Retriever:
             return ""
         return " OR ".join(tokens)
 
-    def _staged_search(self, index, fields: List[str], query: str, limit: int) -> List[Dict]:
+    def _staged_search(self, index, fields: list[str], query: str, limit: int) -> list[dict]:
         """多级搜索：先严格 AND，不够再 OR 补充"""
-        from .note_chunk_search import select_required_cjk_ngrams, _build_all_terms_query, _build_any_terms_query
+        from .note_chunk_search import (
+            _build_all_terms_query,
+            _build_any_terms_query,
+            select_required_cjk_ngrams,
+        )
 
         required_terms = select_required_cjk_ngrams(query)
         all_terms = iter_cjk_fragments(query, include_unigram=True, max_ngram=2)
@@ -232,7 +235,7 @@ class TantivyBM25Retriever:
 
         # Stage 0: AND
         strict_query = _build_all_terms_query(required_terms) if required_terms else ""
-        candidates: List[Dict] = []
+        candidates: list[dict] = []
         if strict_query:
             try:
                 searcher = index.searcher()
@@ -266,36 +269,34 @@ class TantivyBM25Retriever:
                 except Exception:
                     pass
 
-        return self._score_normalize(candidates[:limit * 3])
+        return self._score_normalize(candidates[: limit * 3])
 
-    def _search_memory_bm25(self, query: str, limit: int = 50) -> List[Dict]:
-        return self._staged_search(
-            self._memory_index, ["tags_text", "judgment_text"], query, limit
-        )
+    def _search_memory_bm25(self, query: str, limit: int = 50) -> list[dict]:
+        return self._staged_search(self._memory_index, ["tags_text", "judgment_text"], query, limit)
 
     @staticmethod
     def _rrf_fuse(
-        bm25_rows: List[Dict],
-        vector_scores: Optional[Dict[str, float]],
+        bm25_rows: list[dict],
+        vector_scores: dict[str, float] | None,
         threshold: float,
         limit: int,
         k: int = 60,
-        min_final_score: Optional[float] = None,
-    ) -> List[Dict]:
+        min_final_score: float | None = None,
+    ) -> list[dict]:
         """Reciprocal Rank Fusion (RRF) 融合 BM25 和向量分数"""
         if not bm25_rows:
             return []
 
         # BM25 排名
         bm25_sorted = sorted(bm25_rows, key=lambda x: float(x.get("bm25_score", 0)), reverse=True)
-        bm25_rank: Dict[str, int] = {}
+        bm25_rank: dict[str, int] = {}
         for rank, row in enumerate(bm25_sorted):
             item_id = str(row.get("item_id") or "").strip()
             if item_id:
                 bm25_rank[item_id] = rank + 1
 
         # 向量排名
-        vector_rank: Dict[str, int] = {}
+        vector_rank: dict[str, int] = {}
         if vector_scores:
             vec_sorted = sorted(vector_scores.items(), key=lambda x: x[1], reverse=True)
             for rank, (item_id, _) in enumerate(vec_sorted):
@@ -306,7 +307,7 @@ class TantivyBM25Retriever:
         if vector_scores:
             all_ids.update(vector_scores.keys())
 
-        fused: List[Dict] = []
+        fused: list[dict] = []
         for item_id in all_ids:
             bm25_r = bm25_rank.get(item_id, len(bm25_sorted) + 1)
             vec_r = vector_rank.get(item_id, len(vector_rank) + 100) if vector_scores else k + 1
@@ -317,14 +318,16 @@ class TantivyBM25Retriever:
             bm25_norm = float(bm25_row.get("bm25_normalized_score", 0.0)) if bm25_row else 0.0
             vector_score = float(vector_scores.get(item_id, 0.0)) if vector_scores else 0.0
 
-            fused.append({
-                "id": item_id,
-                "bm25_score": bm25_score,
-                "bm25_normalized_score": bm25_norm,
-                "vector_score": vector_score,
-                "final_score": rrf_score,
-                "score_kind": "rrf",
-            })
+            fused.append(
+                {
+                    "id": item_id,
+                    "bm25_score": bm25_score,
+                    "bm25_normalized_score": bm25_norm,
+                    "vector_score": vector_score,
+                    "final_score": rrf_score,
+                    "score_kind": "rrf",
+                }
+            )
 
         fused.sort(key=lambda x: x["final_score"], reverse=True)
         if min_final_score is None and threshold > 0.0 and fused:
@@ -332,29 +335,23 @@ class TantivyBM25Retriever:
             if top_score > 0.0:
                 keep_ratio = max(0.0, min(1.0, float(threshold)))
                 keep_threshold = top_score * keep_ratio
-                fused = [
-                    item for item in fused
-                    if float(item.get("final_score", 0.0) or 0.0) >= keep_threshold
-                ]
+                fused = [item for item in fused if float(item.get("final_score", 0.0) or 0.0) >= keep_threshold]
         elif min_final_score is not None:
             absolute_threshold = max(0.0, float(min_final_score))
-            fused = [
-                item for item in fused
-                if float(item.get("final_score", 0.0) or 0.0) >= absolute_threshold
-            ]
-        return fused[:max(0, int(limit))]
+            fused = [item for item in fused if float(item.get("final_score", 0.0) or 0.0) >= absolute_threshold]
+        return fused[: max(0, int(limit))]
 
     @staticmethod
     def _fuse_scores(
-        bm25_rows: List[Dict],
-        vector_scores: Optional[Dict[str, float]],
+        bm25_rows: list[dict],
+        vector_scores: dict[str, float] | None,
         bm25_weight: float,
         vector_weight: float,
         threshold: float,
         default_vector_score: float,
         limit: int,
-        min_final_score: Optional[float] = None,
-    ) -> List[Dict]:
+        min_final_score: float | None = None,
+    ) -> list[dict]:
         """兼容旧接口，内部委托 RRF"""
         return TantivyBM25Retriever._rrf_fuse(
             bm25_rows=bm25_rows,
@@ -371,9 +368,9 @@ class TantivyBM25Retriever:
         fts_limit: int = 80,
         fts_weight: float = 0.3,
         vector_weight: float = 0.7,
-        vector_scores: Optional[Dict[str, float]] = None,
-        min_final_score: Optional[float] = None,
-    ) -> List[Dict]:
+        vector_scores: dict[str, float] | None = None,
+        min_final_score: float | None = None,
+    ) -> list[dict]:
         rows = self._search_memory_bm25(query=query, limit=fts_limit)
         return self._fuse_scores(
             bm25_rows=rows,
@@ -386,7 +383,7 @@ class TantivyBM25Retriever:
             min_final_score=min_final_score,
         )
 
-    def search_memory_bm25_only(self, query: str, limit: int = 20) -> List[Dict]:
+    def search_memory_bm25_only(self, query: str, limit: int = 20) -> list[dict]:
         rows = self._search_memory_bm25(query=query, limit=limit)
         return [
             {
@@ -399,6 +396,7 @@ class TantivyBM25Retriever:
             for r in rows[:limit]
             if str(r.get("item_id") or "").strip()
         ]
+
 
 # 兼容旧导入路径（避免一次性大面积修改）。
 FTS5HybridRetriever = TantivyBM25Retriever

@@ -55,12 +55,8 @@ def test_create_action_skips_duplicate_judgment_in_same_scope():
     """同一 scope 下重复归纳出相同论断时，不应产生第二条记忆。"""
     manager = _make_manager()
 
-    first = asyncio.run(
-        manager.process_feedback(memory_actions=[_create_action("用户喜欢喝乌龙茶")])
-    )
-    second = asyncio.run(
-        manager.process_feedback(memory_actions=[_create_action("用户喜欢喝乌龙茶")])
-    )
+    first = asyncio.run(manager.process_feedback(memory_actions=[_create_action("用户喜欢喝乌龙茶")]))
+    second = asyncio.run(manager.process_feedback(memory_actions=[_create_action("用户喜欢喝乌龙茶")]))
 
     assert len(first) == 1
     assert second == [], "重复论断必须被去重，否则反思越频繁记忆越膨胀"

@@ -6,8 +6,9 @@ import sqlite3
 import threading
 import time
 import uuid
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
 try:
     from astrbot.api import logger
@@ -18,11 +19,11 @@ except ImportError:
 
 from ..config.system_config import system_config
 from ..models.data_models import BaseMemory, MemoryType, ValidationError
+from ..service.memory_decay_policy import MemoryDecayConfig, MemoryDecayPolicy
 from ..utils.user_profile import (
     PROFILE_ATTRIBUTE_TAGS,
     is_user_profile_tags,
 )
-from ..service.memory_decay_policy import MemoryDecayConfig, MemoryDecayPolicy
 from .bm25_retriever import TantivyBM25Retriever
 from .hybrid_retrieval_engine import HybridRetrievalEngine
 
@@ -33,8 +34,8 @@ class MemorySqlManager:
     def __init__(
         self,
         db_path: Path,
-        decay_config: Optional[MemoryDecayConfig] = None,
-        rerank_provider: Optional[Any] = None,
+        decay_config: MemoryDecayConfig | None = None,
+        rerank_provider: Any | None = None,
         rerank_timeout: int | None = None,
         rerank_max_docs: int | None = None,
         rerank_max_tokens_per_doc: int | None = None,
@@ -177,22 +178,16 @@ class MemorySqlManager:
                 """
             )
             # 兼容迁移：若旧表 memory_tags 存在，则迁移到 global_tags
-            has_legacy = cur.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_tags'"
-            ).fetchone()
+            has_legacy = cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_tags'").fetchone()
             if has_legacy:
-                cur.execute(
-                    "INSERT OR IGNORE INTO global_tags(name) SELECT name FROM memory_tags"
-                )
+                cur.execute("INSERT OR IGNORE INTO global_tags(name) SELECT name FROM memory_tags")
             # 兼容迁移：note_index_records 补充 total_lines 列
             note_columns = cur.execute("PRAGMA table_info(note_index_records)").fetchall()
             column_names = {str(row[1]) for row in note_columns}
             if "note_short_id" not in column_names:
                 cur.execute("ALTER TABLE note_index_records ADD COLUMN note_short_id INTEGER")
             if "total_lines" not in column_names:
-                cur.execute(
-                    "ALTER TABLE note_index_records ADD COLUMN total_lines INTEGER NOT NULL DEFAULT 0"
-                )
+                cur.execute("ALTER TABLE note_index_records ADD COLUMN total_lines INTEGER NOT NULL DEFAULT 0")
             # 初始化短ID序列
             cur.execute("INSERT OR IGNORE INTO note_short_id_seq(id, next_id) VALUES (1, 0)")
             # 兼容迁移：给历史 note_index_records 补 note_short_id（从0开始）
@@ -205,9 +200,7 @@ class MemorySqlManager:
                 """
             ).fetchall()
             if rows_without_short_id:
-                seq_row = cur.execute(
-                    "SELECT next_id FROM note_short_id_seq WHERE id = 1"
-                ).fetchone()
+                seq_row = cur.execute("SELECT next_id FROM note_short_id_seq WHERE id = 1").fetchone()
                 next_id = int(seq_row[0]) if seq_row else 0
                 for row in rows_without_short_id:
                     cur.execute(
@@ -223,21 +216,13 @@ class MemorySqlManager:
             memory_columns = cur.execute("PRAGMA table_info(memory_records)").fetchall()
             memory_column_names = {str(row[1]) for row in memory_columns}
             if "useful_count" not in memory_column_names:
-                cur.execute(
-                    "ALTER TABLE memory_records ADD COLUMN useful_count INTEGER NOT NULL DEFAULT 0"
-                )
+                cur.execute("ALTER TABLE memory_records ADD COLUMN useful_count INTEGER NOT NULL DEFAULT 0")
             if "useful_score" not in memory_column_names:
-                cur.execute(
-                    "ALTER TABLE memory_records ADD COLUMN useful_score REAL NOT NULL DEFAULT 0"
-                )
+                cur.execute("ALTER TABLE memory_records ADD COLUMN useful_score REAL NOT NULL DEFAULT 0")
             if "last_recalled_at" not in memory_column_names:
-                cur.execute(
-                    "ALTER TABLE memory_records ADD COLUMN last_recalled_at REAL NOT NULL DEFAULT 0"
-                )
+                cur.execute("ALTER TABLE memory_records ADD COLUMN last_recalled_at REAL NOT NULL DEFAULT 0")
             if "last_decay_at" not in memory_column_names:
-                cur.execute(
-                    "ALTER TABLE memory_records ADD COLUMN last_decay_at REAL NOT NULL DEFAULT 0"
-                )
+                cur.execute("ALTER TABLE memory_records ADD COLUMN last_decay_at REAL NOT NULL DEFAULT 0")
             # 索引创建放在补列之后，避免旧库因缺列导致初始化失败
             cur.execute(
                 """
@@ -264,14 +249,12 @@ class MemorySqlManager:
 
     def _init_short_id_registry(self) -> None:
         """启动时加载全部记忆 ID，分配纯数字短 ID（从 10000 开始递增）。"""
-        self._short_to_full: Dict[str, str] = {}
-        self._full_to_short: Dict[str, str] = {}
+        self._short_to_full: dict[str, str] = {}
+        self._full_to_short: dict[str, str] = {}
         self._next_short_id: int = 10000
 
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT id FROM memory_records ORDER BY created_at ASC"
-            ).fetchall()
+            rows = conn.execute("SELECT id FROM memory_records ORDER BY created_at ASC").fetchall()
 
         for row in rows:
             full_id = str(row["id"]).strip()
@@ -281,10 +264,7 @@ class MemorySqlManager:
                 self._full_to_short[full_id] = short_id
                 self._next_short_id += 1
 
-        self.logger.info(
-            f"[短ID注册表] 初始化完成 记忆数={len(self._full_to_short)} "
-            f"下一个短ID={self._next_short_id}"
-        )
+        self.logger.info(f"[短ID注册表] 初始化完成 记忆数={len(self._full_to_short)} 下一个短ID={self._next_short_id}")
 
     def register_short_id(self, full_id: str) -> str:
         """为新记忆分配短 ID 并注册。如果已存在则直接返回。"""
@@ -310,9 +290,7 @@ class MemorySqlManager:
 
     # --- 反思缓冲持久化 ---
 
-    def _find_memory_id_by_judgment_sync(
-        self, judgment: str, memory_scope: str
-    ) -> str:
+    def _find_memory_id_by_judgment_sync(self, judgment: str, memory_scope: str) -> str:
         """按规范化论断在同 scope 内精确查重，返回命中的记忆 ID。"""
         text = str(judgment or "").strip()
         if not text:
@@ -329,16 +307,16 @@ class MemorySqlManager:
             ).fetchone()
         return str(row["id"]) if row else ""
 
-    def build_id_mapping(self, full_ids: List[str]) -> Dict[str, str]:
+    def build_id_mapping(self, full_ids: list[str]) -> dict[str, str]:
         """为一组完整 ID 构建 {短ID: 完整ID} 映射（用于反思等场景）。"""
-        mapping: Dict[str, str] = {}
+        mapping: dict[str, str] = {}
         for full_id in full_ids:
             short_id = self.get_short_id(full_id)
             if short_id:
                 mapping[short_id] = full_id
         return mapping
 
-    def get_short_ids_by_paths_sync(self, paths: List[str]) -> Dict[str, int]:
+    def get_short_ids_by_paths_sync(self, paths: list[str]) -> dict[str, int]:
         """根据 source_file_path 列表查询对应的 note_short_id。
 
         Returns:
@@ -354,7 +332,7 @@ class MemorySqlManager:
                 f"ORDER BY note_short_id ASC",
                 tuple(paths),
             ).fetchall()
-        result: Dict[str, int] = {}
+        result: dict[str, int] = {}
         for row in rows:
             path = str(row["source_file_path"] or "")
             short_id = row["note_short_id"]
@@ -362,10 +340,10 @@ class MemorySqlManager:
                 result[path] = int(short_id)
         return result
 
-    def _list_global_tag_names_sync(self) -> List[str]:
+    def _list_global_tag_names_sync(self) -> list[str]:
         with self._connect() as conn:
             rows = conn.execute("SELECT name FROM global_tags").fetchall()
-        names: List[str] = []
+        names: list[str] = []
         seen = set()
         for row in rows:
             tag = str(row["name"] or "").strip()
@@ -375,7 +353,7 @@ class MemorySqlManager:
             names.append(tag)
         return names
 
-    def _mark_new_tags_sync(self, tags: List[str]) -> None:
+    def _mark_new_tags_sync(self, tags: list[str]) -> None:
         normalized = self._normalize_tags(tags)
         if not normalized:
             return
@@ -421,12 +399,11 @@ class MemorySqlManager:
                 if name and name not in names:
                     names.append(name)
                 conn.execute(
-                    "UPDATE user_ledger SET user_names = ?, last_seen_at = ? "
-                    "WHERE platform = ? AND user_id = ?",
+                    "UPDATE user_ledger SET user_names = ?, last_seen_at = ? WHERE platform = ? AND user_id = ?",
                     (json.dumps(names, ensure_ascii=False), now, plat, uid),
                 )
 
-    def get_known_user_ids(self, platform: str = "") -> List[str]:
+    def get_known_user_ids(self, platform: str = "") -> list[str]:
         """返回账本中全部已知用户 ID；platform 非空时只返回该平台下的 ID。
 
         不带平台时返回跨平台去重后的 ID 集合（仅用于画像判定锚点），
@@ -452,7 +429,7 @@ class MemorySqlManager:
                 unique.append(uid)
         return unique
 
-    def get_user_names(self, platform: str, user_id: str) -> List[str]:
+    def get_user_names(self, platform: str, user_id: str) -> list[str]:
         """返回某平台下某用户账本中登记过的全部昵称。"""
         plat = str(platform or "").strip()
         uid = str(user_id or "").strip()
@@ -504,7 +481,7 @@ class MemorySqlManager:
                         (now, gid),
                     )
 
-    def get_known_group_ids(self) -> List[str]:
+    def get_known_group_ids(self) -> list[str]:
         """返回群账本中全部已知群 ID。"""
         with self._connect() as conn:
             rows = conn.execute("SELECT group_id FROM group_ledger").fetchall()
@@ -524,7 +501,7 @@ class MemorySqlManager:
             return ""
         return str(row["group_name"] or "").strip()
 
-    def _list_memory_rows_for_fts_sync(self) -> List[Dict[str, Any]]:
+    def _list_memory_rows_for_fts_sync(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
                 """
@@ -543,7 +520,7 @@ class MemorySqlManager:
                 ) tags ON tags.memory_id = mr.id
                 """
             ).fetchall()
-        result: List[Dict[str, Any]] = []
+        result: list[dict[str, Any]] = []
         for row in rows:
             tags = [t.strip() for t in str(row["tags_text"] or "").split(",") if t.strip()]
             result.append(
@@ -587,9 +564,7 @@ class MemorySqlManager:
             db_size_bytes = 0
 
         db_size_mb = db_size_bytes / (1024 * 1024)
-        self.logger.info(
-            f"[检索索引] 完成 db_size={db_size_bytes}B ({db_size_mb:.2f}MB)"
-        )
+        self.logger.info(f"[检索索引] 完成 db_size={db_size_bytes}B ({db_size_mb:.2f}MB)")
 
     def _sync_memory_fts_by_id_sync(self, memory_id: str) -> None:
         if not self._fts_ready:
@@ -610,8 +585,8 @@ class MemorySqlManager:
 
     def _sync_memory_fts_batch_sync(
         self,
-        upsert_ids: Optional[List[str]] = None,
-        delete_ids: Optional[List[str]] = None,
+        upsert_ids: list[str] | None = None,
+        delete_ids: list[str] | None = None,
     ) -> None:
         if not self._fts_ready:
             return
@@ -623,18 +598,15 @@ class MemorySqlManager:
         for memory_id in upsert_list:
             self._sync_memory_fts_by_id_sync(memory_id)
 
-    async def audit_and_repair_fts_indexes(self, sample_size: int = 50) -> Dict[str, Any]:
+    async def audit_and_repair_fts_indexes(self, sample_size: int = 50) -> dict[str, Any]:
         return await asyncio.to_thread(self._audit_and_repair_fts_indexes_sync, sample_size)
 
-    def _audit_and_repair_fts_indexes_sync(self, sample_size: int = 50) -> Dict[str, Any]:
+    def _audit_and_repair_fts_indexes_sync(self, sample_size: int = 50) -> dict[str, Any]:
         del sample_size
         self._ensure_fts_ready_sync(force_rebuild=True)
         with self._connect() as conn:
             sql_memory_count = int(conn.execute("SELECT COUNT(1) FROM memory_records").fetchone()[0] or 0)
-        self.logger.info(
-            "[检索巡检] 完成 "
-            f"memory_sql={sql_memory_count} auto_repaired=是"
-        )
+        self.logger.info(f"[检索巡检] 完成 memory_sql={sql_memory_count} auto_repaired=是")
         return {
             "memory_sql_count": sql_memory_count,
             "memory_fts_count": -1,
@@ -649,8 +621,8 @@ class MemorySqlManager:
         return scope
 
     @staticmethod
-    def _normalize_tags(tags: Iterable[str]) -> List[str]:
-        normalized: List[str] = []
+    def _normalize_tags(tags: Iterable[str]) -> list[str]:
+        normalized: list[str] = []
         seen = set()
         for tag in tags or []:
             t = str(tag).strip()
@@ -678,7 +650,7 @@ class MemorySqlManager:
             return MemoryType.KNOWLEDGE
 
     @staticmethod
-    def _scope_sql(memory_scope: str, alias: str = "mr") -> Tuple[str, List[str]]:
+    def _scope_sql(memory_scope: str, alias: str = "mr") -> tuple[str, list[str]]:
         scope = MemorySqlManager._normalize_scope(memory_scope)
         if scope == "public":
             return f"{alias}.memory_scope = ?", ["public"]
@@ -693,7 +665,7 @@ class MemorySqlManager:
         return scope in {target, "public"}
 
     @staticmethod
-    def _row_to_memory(row: sqlite3.Row, tags: List[str]) -> BaseMemory:
+    def _row_to_memory(row: sqlite3.Row, tags: list[str]) -> BaseMemory:
         keys = set(row.keys()) if hasattr(row, "keys") else set()
 
         def _v(name: str, default: Any) -> Any:
@@ -716,9 +688,7 @@ class MemorySqlManager:
             last_recalled_at=float(_v("last_recalled_at", 0.0) or 0.0),
         )
 
-    def _fetch_tags_for_memory_ids(
-        self, conn: sqlite3.Connection, memory_ids: Sequence[str]
-    ) -> Dict[str, List[str]]:
+    def _fetch_tags_for_memory_ids(self, conn: sqlite3.Connection, memory_ids: Sequence[str]) -> dict[str, list[str]]:
         if not memory_ids:
             return {}
         placeholders = ",".join(["?" for _ in memory_ids])
@@ -729,16 +699,14 @@ class MemorySqlManager:
             WHERE mtr.memory_id IN ({placeholders})
         """
         rows = conn.execute(sql, tuple(memory_ids)).fetchall()
-        result: Dict[str, List[str]] = {mid: [] for mid in memory_ids}
+        result: dict[str, list[str]] = {mid: [] for mid in memory_ids}
         for row in rows:
             memory_id = str(row["memory_id"])
             tag_name = str(row["tag_name"])
             result.setdefault(memory_id, []).append(tag_name)
         return result
 
-    def _upsert_tags_and_bind(
-        self, conn: sqlite3.Connection, memory_id: str, tags: List[str]
-    ) -> None:
+    def _upsert_tags_and_bind(self, conn: sqlite3.Connection, memory_id: str, tags: list[str]) -> None:
         if tags:
             conn.executemany(
                 "INSERT OR IGNORE INTO global_tags(name) VALUES (?)",
@@ -751,11 +719,7 @@ class MemorySqlManager:
             ).fetchall()
             tag_id_by_name = {str(row["name"]): int(row["id"]) for row in rows}
 
-            rel_rows = [
-                (memory_id, tag_id_by_name[tag])
-                for tag in tags
-                if tag in tag_id_by_name
-            ]
+            rel_rows = [(memory_id, tag_id_by_name[tag]) for tag in tags if tag in tag_id_by_name]
             if rel_rows:
                 conn.executemany(
                     "INSERT OR IGNORE INTO memory_tag_rel(memory_id, tag_id) VALUES (?, ?)",
@@ -763,13 +727,11 @@ class MemorySqlManager:
                 )
             self._mark_new_tags_sync(tags)
 
-    def _replace_memory_tags(
-        self, conn: sqlite3.Connection, memory_id: str, tags: List[str]
-    ) -> None:
+    def _replace_memory_tags(self, conn: sqlite3.Connection, memory_id: str, tags: list[str]) -> None:
         conn.execute("DELETE FROM memory_tag_rel WHERE memory_id = ?", (memory_id,))
         self._upsert_tags_and_bind(conn, memory_id, tags)
 
-    def _get_or_create_tag_ids_sync(self, tag_names: List[str]) -> List[int]:
+    def _get_or_create_tag_ids_sync(self, tag_names: list[str]) -> list[int]:
         normalized = self._normalize_tags(tag_names)
         if not normalized:
             return []
@@ -787,9 +749,7 @@ class MemorySqlManager:
         by_name = {str(row["name"]): int(row["id"]) for row in rows}
         return [by_name[tag] for tag in normalized if tag in by_name]
 
-    def _get_or_create_tag_ids_with_conn(
-        self, conn: sqlite3.Connection, tag_names: List[str]
-    ) -> List[int]:
+    def _get_or_create_tag_ids_with_conn(self, conn: sqlite3.Connection, tag_names: list[str]) -> list[int]:
         normalized = self._normalize_tags(tag_names)
         if not normalized:
             return []
@@ -806,14 +766,12 @@ class MemorySqlManager:
         by_name = {str(row["name"]): int(row["id"]) for row in rows}
         return [by_name[tag] for tag in normalized if tag in by_name]
 
-    async def get_or_create_tag_ids(self, tag_names: List[str]) -> List[int]:
+    async def get_or_create_tag_ids(self, tag_names: list[str]) -> list[int]:
         return await asyncio.to_thread(self._get_or_create_tag_ids_sync, tag_names)
 
     @staticmethod
     def _alloc_next_note_short_id(conn: sqlite3.Connection) -> int:
-        row = conn.execute(
-            "SELECT next_id FROM note_short_id_seq WHERE id = 1"
-        ).fetchone()
+        row = conn.execute("SELECT next_id FROM note_short_id_seq WHERE id = 1").fetchone()
         next_id = int(row["next_id"]) if row else 0
         conn.execute(
             "UPDATE note_short_id_seq SET next_id = ? WHERE id = 1",
@@ -821,10 +779,10 @@ class MemorySqlManager:
         )
         return next_id
 
-    async def clear_note_file_registry(self) -> Dict[str, int]:
+    async def clear_note_file_registry(self) -> dict[str, int]:
         return await asyncio.to_thread(self._clear_note_file_registry_sync)
 
-    def _clear_note_file_registry_sync(self) -> Dict[str, int]:
+    def _clear_note_file_registry_sync(self) -> dict[str, int]:
         with self._connect() as conn:
             count = int(conn.execute("SELECT COUNT(1) FROM note_index_records").fetchone()[0] or 0)
             conn.execute("DELETE FROM note_index_records")
@@ -838,8 +796,8 @@ class MemorySqlManager:
         source_file_path: str,
         heading_h1: str = "",
         total_lines: int = 0,
-        updated_at: Optional[float] = None,
-    ) -> Dict[str, int]:
+        updated_at: float | None = None,
+    ) -> dict[str, int]:
         return await asyncio.to_thread(
             self._upsert_note_file_entry_sync,
             file_id,
@@ -855,8 +813,8 @@ class MemorySqlManager:
         source_file_path: str,
         heading_h1: str = "",
         total_lines: int = 0,
-        updated_at: Optional[float] = None,
-    ) -> Dict[str, int]:
+        updated_at: float | None = None,
+    ) -> dict[str, int]:
         fid = str(file_id or "").strip()
         rel_path = str(source_file_path or "").replace("\\", "/").strip().lstrip("/")
         heading_1 = str(heading_h1 or "").strip()
@@ -928,10 +886,10 @@ class MemorySqlManager:
             conn.commit()
         return {"scanned": 1, "upserted": 1, "failed": 0}
 
-    async def delete_note_index_by_file_id(self, file_id: str) -> List[str]:
+    async def delete_note_index_by_file_id(self, file_id: str) -> list[str]:
         return await asyncio.to_thread(self._delete_note_index_by_file_id_sync, file_id)
 
-    def _delete_note_index_by_file_id_sync(self, file_id: str) -> List[str]:
+    def _delete_note_index_by_file_id_sync(self, file_id: str) -> list[str]:
         fid = str(file_id or "").strip()
         if not fid:
             return []
@@ -945,26 +903,24 @@ class MemorySqlManager:
             conn.commit()
         return source_ids
 
-    def _build_memory_doc_text_map_by_ids(self, memory_ids: List[str]) -> Dict[str, str]:
+    def _build_memory_doc_text_map_by_ids(self, memory_ids: list[str]) -> dict[str, str]:
         memories = self._get_memories_by_ids_sync(memory_ids)
         memory_map = {mem.id: mem for mem in memories}
-        doc_text_map: Dict[str, str] = {}
+        doc_text_map: dict[str, str] = {}
         for memory_id in memory_ids:
             mem = memory_map.get(str(memory_id))
             if mem is None:
                 continue
-            tags = " ".join(
-                [str(t).strip() for t in (getattr(mem, "tags", []) or []) if str(t).strip()]
-            )
+            tags = " ".join([str(t).strip() for t in (getattr(mem, "tags", []) or []) if str(t).strip()])
             doc_text_map[str(memory_id)] = (
                 f"{getattr(mem, 'judgment', '')}\n{getattr(mem, 'reasoning', '')}\n{tags}"
             ).strip()
         return doc_text_map
 
-    async def get_note_index_by_short_id(self, note_short_id: int) -> Optional[Dict[str, Any]]:
+    async def get_note_index_by_short_id(self, note_short_id: int) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._get_note_index_by_short_id_sync, note_short_id)
 
-    def _get_note_index_by_short_id_sync(self, note_short_id: int) -> Optional[Dict[str, Any]]:
+    def _get_note_index_by_short_id_sync(self, note_short_id: int) -> dict[str, Any] | None:
         sid = int(note_short_id)
         with self._connect() as conn:
             row = conn.execute(
@@ -990,10 +946,10 @@ class MemorySqlManager:
             ).fetchone()
         return dict(row) if row else None
 
-    async def find_matched_tag_ids(self, query_text: str) -> List[int]:
+    async def find_matched_tag_ids(self, query_text: str) -> list[int]:
         return await asyncio.to_thread(self._find_matched_tag_ids_sync, query_text)
 
-    def _find_matched_tag_ids_sync(self, query_text: str) -> List[int]:
+    def _find_matched_tag_ids_sync(self, query_text: str) -> list[int]:
         text = str(query_text or "")
         if not text.strip():
             return []
@@ -1009,10 +965,10 @@ class MemorySqlManager:
             ).fetchall()
         return [int(row["id"]) for row in rows]
 
-    async def search_memory_ids_by_tag_ids(self, tag_ids: List[int]) -> List[str]:
+    async def search_memory_ids_by_tag_ids(self, tag_ids: list[int]) -> list[str]:
         return await asyncio.to_thread(self._search_memory_ids_by_tag_ids_sync, tag_ids)
 
-    def _search_memory_ids_by_tag_ids_sync(self, tag_ids: List[int]) -> List[str]:
+    def _search_memory_ids_by_tag_ids_sync(self, tag_ids: list[int]) -> list[str]:
         ids = [int(tid) for tid in (tag_ids or [])]
         if not ids:
             return []
@@ -1030,13 +986,13 @@ class MemorySqlManager:
             ).fetchall()
         return [str(row["memory_id"]) for row in rows]
 
-    async def unified_tag_hit_search(self, query_text: str) -> Dict[str, Any]:
+    async def unified_tag_hit_search(self, query_text: str) -> dict[str, Any]:
         """
         统一 tags 命中入口：一次解析，返回命中 tag_ids + 记忆ID。
         """
         return await asyncio.to_thread(self._unified_tag_hit_search_sync, query_text)
 
-    def _unified_tag_hit_search_sync(self, query_text: str) -> Dict[str, Any]:
+    def _unified_tag_hit_search_sync(self, query_text: str) -> dict[str, Any]:
         tag_ids = self._find_matched_tag_ids_sync(query_text)
         memory_ids = self._search_memory_ids_by_tag_ids_sync(tag_ids)
         return {
@@ -1050,9 +1006,9 @@ class MemorySqlManager:
         memory_type: str,
         judgment: str,
         reasoning: str,
-        tags: List[str],
+        tags: list[str],
         is_active: bool = False,
-        strength: Optional[int] = None,
+        strength: int | None = None,
         memory_scope: str = "public",
     ) -> BaseMemory:
         return await asyncio.to_thread(
@@ -1077,9 +1033,9 @@ class MemorySqlManager:
         memory_type: str,
         judgment: str,
         reasoning: str,
-        tags: List[str],
+        tags: list[str],
         is_active: bool = False,
-        strength: Optional[int] = None,
+        strength: int | None = None,
         memory_scope: str = "public",
     ) -> BaseMemory:
         scope = self._normalize_scope(memory_scope)
@@ -1091,11 +1047,7 @@ class MemorySqlManager:
             reasoning=str(reasoning or "").strip(),
             tags=normalized_tags,
             id=str(uuid.uuid4()),
-            strength=int(
-                strength
-                if strength is not None
-                else system_config.default_passive_strength
-            ),
+            strength=int(strength if strength is not None else system_config.default_passive_strength),
             is_active=bool(is_active),
             created_at=now,
             memory_scope=scope,
@@ -1187,10 +1139,10 @@ class MemorySqlManager:
         self.register_short_id(memory_id)
         return memory
 
-    async def upsert_memories_by_judgment(self, memories: List[Dict[str, Any]]) -> Dict[str, int]:
+    async def upsert_memories_by_judgment(self, memories: list[dict[str, Any]]) -> dict[str, int]:
         return await asyncio.to_thread(self._upsert_memories_by_judgment_sync, memories)
 
-    def _upsert_memories_by_judgment_sync(self, memories: List[Dict[str, Any]]) -> Dict[str, int]:
+    def _upsert_memories_by_judgment_sync(self, memories: list[dict[str, Any]]) -> dict[str, int]:
         """
         按 judgment 幂等写入（同 judgment 仅保留最新 created_at）。
 
@@ -1198,7 +1150,7 @@ class MemorySqlManager:
             {"scanned": int, "deduped": int, "upserted": int, "failed": int}
         """
         scanned = len(memories or [])
-        deduped_map: Dict[str, Dict[str, Any]] = {}
+        deduped_map: dict[str, dict[str, Any]] = {}
         failed = 0
 
         for item in memories or []:
@@ -1223,8 +1175,8 @@ class MemorySqlManager:
 
         upserted = 0
         now = time.time()
-        fts_upsert_ids: List[str] = []
-        fts_delete_ids: List[str] = []
+        fts_upsert_ids: list[str] = []
+        fts_delete_ids: list[str] = []
 
         with self._connect() as conn:
             for judgment, raw in deduped_map.items():
@@ -1352,17 +1304,17 @@ class MemorySqlManager:
             "failed": failed,
         }
 
-    async def list_all_memories_for_vector_sync(self) -> List[Dict[str, Any]]:
+    async def list_all_memories_for_vector_sync(self) -> list[dict[str, Any]]:
         """导出 simple 库全部记忆（含 tags）用于向量回灌。"""
         return await asyncio.to_thread(self._list_all_memories_for_vector_sync_sync)
 
-    def list_all_memory_ids_sync(self) -> List[str]:
+    def list_all_memory_ids_sync(self) -> list[str]:
         """同步获取全库所有记忆 ID（用于启动时构建短 ID 注册表）。"""
         with self._connect() as conn:
             rows = conn.execute("SELECT id FROM memory_records ORDER BY created_at ASC").fetchall()
         return [str(row["id"]) for row in rows if row["id"]]
 
-    def _list_all_memories_for_vector_sync_sync(self) -> List[Dict[str, Any]]:
+    def _list_all_memories_for_vector_sync_sync(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
             sql = """
                 SELECT
@@ -1391,7 +1343,7 @@ class MemorySqlManager:
             """
             rows = conn.execute(sql).fetchall()
 
-        records: List[Dict[str, Any]] = []
+        records: list[dict[str, Any]] = []
         for row in rows:
             records.append(
                 {
@@ -1412,7 +1364,7 @@ class MemorySqlManager:
         return records
 
     @staticmethod
-    def build_vector_text(judgment: str, tags: List[str]) -> str:
+    def build_vector_text(judgment: str, tags: list[str]) -> str:
         """构建轻量向量索引文本。"""
         safe_judgment = str(judgment or "").strip()
         safe_tags = [str(tag).strip() for tag in (tags or []) if str(tag).strip()]
@@ -1420,13 +1372,13 @@ class MemorySqlManager:
             return f"{safe_judgment} {' '.join(safe_tags)}".strip()
         return safe_judgment
 
-    async def list_memory_index_rows(self) -> List[Dict[str, str]]:
+    async def list_memory_index_rows(self) -> list[dict[str, str]]:
         """
         导出记忆轻量向量索引数据（仅 id + vector_text）。
         """
         return await asyncio.to_thread(self._list_memory_index_rows_sync)
 
-    def _list_memory_index_rows_sync(self) -> List[Dict[str, str]]:
+    def _list_memory_index_rows_sync(self) -> list[dict[str, str]]:
         with self._connect() as conn:
             sql = """
                 SELECT
@@ -1445,7 +1397,7 @@ class MemorySqlManager:
             """
             rows = conn.execute(sql).fetchall()
 
-        result: List[Dict[str, str]] = []
+        result: list[dict[str, str]] = []
         for row in rows:
             memory_id = str(row["id"])
             judgment = str(row["judgment"] or "")
@@ -1456,11 +1408,11 @@ class MemorySqlManager:
             result.append({"id": memory_id, "vector_text": vector_text})
         return result
 
-    async def export_backup_snapshot(self) -> Dict[str, Any]:
+    async def export_backup_snapshot(self) -> dict[str, Any]:
         """导出中央记忆库快照（JSON冷备份使用）。"""
         return await asyncio.to_thread(self._export_backup_snapshot_sync)
 
-    def _export_backup_snapshot_sync(self) -> Dict[str, Any]:
+    def _export_backup_snapshot_sync(self) -> dict[str, Any]:
         with self._connect() as conn:
             records_rows = conn.execute(
                 """
@@ -1471,12 +1423,8 @@ class MemorySqlManager:
                 ORDER BY created_at DESC
                 """
             ).fetchall()
-            tags_rows = conn.execute(
-                "SELECT id, name FROM global_tags ORDER BY id ASC"
-            ).fetchall()
-            rel_rows = conn.execute(
-                "SELECT memory_id, tag_id FROM memory_tag_rel"
-            ).fetchall()
+            tags_rows = conn.execute("SELECT id, name FROM global_tags ORDER BY id ASC").fetchall()
+            rel_rows = conn.execute("SELECT memory_id, tag_id FROM memory_tag_rel").fetchall()
 
         records = [dict(row) for row in records_rows]
         tags = [dict(row) for row in tags_rows]
@@ -1494,8 +1442,8 @@ class MemorySqlManager:
         query: str,
         limit: int,
         memory_scope: str,
-        vector_scores: Optional[Dict[str, float]] = None,
-    ) -> List[BaseMemory]:
+        vector_scores: dict[str, float] | None = None,
+    ) -> list[BaseMemory]:
         text = str(query or "").strip()
         if not text:
             return []
@@ -1523,11 +1471,7 @@ class MemorySqlManager:
         if not hits:
             return []
 
-        ordered_ids = [
-            str(item.get("id") or "").strip()
-            for item in hits
-            if str(item.get("id") or "").strip()
-        ]
+        ordered_ids = [str(item.get("id") or "").strip() for item in hits if str(item.get("id") or "").strip()]
         score_map = {
             str(item.get("id") or "").strip(): float(item.get("final_score", 0.0))
             for item in hits
@@ -1541,7 +1485,7 @@ class MemorySqlManager:
         memories = self._get_memories_by_ids_sync(ordered_ids)
         memory_map = {mem.id: mem for mem in memories}
 
-        ordered: List[BaseMemory] = []
+        ordered: list[BaseMemory] = []
         for memory_id in ordered_ids:
             mem = memory_map.get(memory_id)
             if mem is None:
@@ -1558,7 +1502,7 @@ class MemorySqlManager:
                 break
         return ordered
 
-    async def reinforce_memories(self, memory_ids: List[str], delta: int = 1) -> None:
+    async def reinforce_memories(self, memory_ids: list[str], delta: int = 1) -> None:
         ids = [str(mid).strip() for mid in (memory_ids or []) if str(mid).strip()]
         if not ids:
             return
@@ -1576,11 +1520,11 @@ class MemorySqlManager:
                     updated_at = ?
                 WHERE id IN ({placeholders})
                 """,
-                tuple([int(delta), score_delta, now, now, *ids]),
+                (int(delta), score_delta, now, now, *ids),
             )
             conn.commit()
 
-    async def decay_memories(self, memory_ids: List[str], delta: int = 1) -> None:
+    async def decay_memories(self, memory_ids: list[str], delta: int = 1) -> None:
         """
         兼容旧接口：仅对 T1（待证档）执行“召回无用衰减”。
         """
@@ -1602,14 +1546,14 @@ class MemorySqlManager:
                   AND useful_score >= ?
                   AND useful_score < ?
                 """,
-                tuple([int(delta), int(delta), now, tier1_min_score, tier1_max_score, *ids]),
+                (int(delta), int(delta), now, tier1_min_score, tier1_max_score, *ids),
             )
             conn.commit()
 
-    async def decay_recalled_but_useless(self, memory_ids: List[str], delta: int = 1) -> None:
+    async def decay_recalled_but_useless(self, memory_ids: list[str], delta: int = 1) -> None:
         await self.decay_memories(memory_ids, delta=delta)
 
-    async def natural_decay_tier0(self, now_ts: Optional[float] = None) -> int:
+    async def natural_decay_tier0(self, now_ts: float | None = None) -> int:
         """
         仅对 T0（易逝档）做时间驱动遗忘。
         """
@@ -1683,7 +1627,7 @@ class MemorySqlManager:
         """睡眠第一步：T0 时间衰减，只降强度，不删除任何记录。"""
         return await self.natural_decay_tier0()
 
-    def _list_retirement_candidates_sync(self) -> List[BaseMemory]:
+    def _list_retirement_candidates_sync(self) -> list[BaseMemory]:
         with self._connect() as conn:
             rows = conn.execute(
                 """
@@ -1695,28 +1639,23 @@ class MemorySqlManager:
                 ORDER BY created_at ASC
                 """
             ).fetchall()
-            tags_map = self._fetch_tags_for_memory_ids(
-                conn, [str(row["id"]) for row in rows]
-            )
-        return [
-            self._row_to_memory(row, tags_map.get(str(row["id"]), []))
-            for row in rows
-        ]
+            tags_map = self._fetch_tags_for_memory_ids(conn, [str(row["id"]) for row in rows])
+        return [self._row_to_memory(row, tags_map.get(str(row["id"]), [])) for row in rows]
 
-    async def list_retirement_candidates(self) -> List[BaseMemory]:
+    async def list_retirement_candidates(self) -> list[BaseMemory]:
         """睡眠第二步：取出强度归零、等待裁决的被动记忆。"""
         return await asyncio.to_thread(self._list_retirement_candidates_sync)
 
     def _apply_retirement_decisions_sync(
         self,
-        delete_ids: List[str],
-        keep_ids: List[str],
-    ) -> Dict[str, int]:
+        delete_ids: list[str],
+        keep_ids: list[str],
+    ) -> dict[str, int]:
         delete_list = [str(mid).strip() for mid in (delete_ids or []) if str(mid).strip()]
         keep_list = [str(mid).strip() for mid in (keep_ids or []) if str(mid).strip()]
         deleted = 0
         promoted = 0
-        deleted_ids: List[str] = []
+        deleted_ids: list[str] = []
         now = time.time()
         with self._connect() as conn:
             if delete_list:
@@ -1747,7 +1686,7 @@ class MemorySqlManager:
                     WHERE id IN ({placeholders})
                       AND is_active = 0
                     """,
-                    tuple([now, *keep_list]),
+                    (now, *keep_list),
                 )
                 promoted = int(cur.rowcount or 0)
             if delete_list:
@@ -1764,9 +1703,9 @@ class MemorySqlManager:
 
     async def apply_retirement_decisions(
         self,
-        delete_ids: List[str],
-        keep_ids: List[str],
-    ) -> Dict[str, int]:
+        delete_ids: list[str],
+        keep_ids: list[str],
+    ) -> dict[str, int]:
         """睡眠第三步：按裁决执行删除与永久化，返回实际生效条数。"""
         return await asyncio.to_thread(
             self._apply_retirement_decisions_sync,
@@ -1774,7 +1713,7 @@ class MemorySqlManager:
             keep_ids,
         )
 
-    def _get_memories_by_ids_sync(self, memory_ids: List[str]) -> List[BaseMemory]:
+    def _get_memories_by_ids_sync(self, memory_ids: list[str]) -> list[BaseMemory]:
         ids = [str(mid).strip() for mid in (memory_ids or []) if str(mid).strip()]
         if not ids:
             return []
@@ -1793,15 +1732,15 @@ class MemorySqlManager:
             tags_map = self._fetch_tags_for_memory_ids(conn, [str(row["id"]) for row in rows])
         return [self._row_to_memory(row, tags_map.get(str(row["id"]), [])) for row in rows]
 
-    async def get_memories_by_ids(self, memory_ids: List[str]) -> List[BaseMemory]:
+    async def get_memories_by_ids(self, memory_ids: list[str]) -> list[BaseMemory]:
         return await asyncio.to_thread(self._get_memories_by_ids_sync, memory_ids)
 
     async def recall_user_profiles(
         self,
-        user_ids: List[str],
+        user_ids: list[str],
         memory_scope: str,
         limit_per_user: int = 30,
-    ) -> List[BaseMemory]:
+    ) -> list[BaseMemory]:
         return await asyncio.to_thread(
             self._recall_user_profiles_sync,
             user_ids,
@@ -1811,10 +1750,10 @@ class MemorySqlManager:
 
     def _recall_user_profiles_sync(
         self,
-        user_ids: List[str],
+        user_ids: list[str],
         memory_scope: str,
         limit_per_user: int = 30,
-    ) -> List[BaseMemory]:
+    ) -> list[BaseMemory]:
         user_tags = []
         seen_users = set()
         for raw in user_ids or []:
@@ -1849,25 +1788,21 @@ class MemorySqlManager:
                   AND agt.name IN ({attr_placeholders})
                 ORDER BY mr.is_active DESC, mr.updated_at DESC, mr.created_at DESC
                 """,
-                tuple([*scope_args, *user_tags, *attr_tags]),
+                (*scope_args, *user_tags, *attr_tags),
             ).fetchall()
 
         ordered_ids = [str(row["id"]) for row in rows]
         memories = self._get_memories_by_ids_sync(ordered_ids)
-        memory_map = {
-            mem.id: mem
-            for mem in memories
-            if is_user_profile_tags(mem.tags, known_user_ids=known_user_ids)
-        }
+        memory_map = {mem.id: mem for mem in memories if is_user_profile_tags(mem.tags, known_user_ids=known_user_ids)}
 
-        per_user_count = {user_id: 0 for user_id in user_tags}
-        result: List[BaseMemory] = []
+        per_user_count = dict.fromkeys(user_tags, 0)
+        result: list[BaseMemory] = []
         for memory_id in ordered_ids:
             mem = memory_map.get(memory_id)
             if mem is None:
                 continue
             matched_user = ""
-            tags = set(str(tag) for tag in (mem.tags or []))
+            tags = {str(tag) for tag in (mem.tags or [])}
             for user_id in user_tags:
                 if user_id in tags:
                     matched_user = user_id
@@ -1880,10 +1815,10 @@ class MemorySqlManager:
             result.append(mem)
         return result
 
-    async def merge_group(self, memory_ids: List[str]) -> Optional[BaseMemory]:
+    async def merge_group(self, memory_ids: list[str]) -> BaseMemory | None:
         return await asyncio.to_thread(self._merge_group_sync, memory_ids)
 
-    def _merge_group_sync(self, memory_ids: List[str]) -> Optional[BaseMemory]:
+    def _merge_group_sync(self, memory_ids: list[str]) -> BaseMemory | None:
         memories = self._get_memories_by_ids_sync(memory_ids)
         if len(memories) < 2:
             return None
@@ -1969,13 +1904,13 @@ class MemorySqlManager:
 
     async def process_feedback(
         self,
-        useful_memory_ids: Optional[List[str]] = None,
-        recalled_memory_ids: Optional[List[str]] = None,
-        memory_actions: Optional[List[Dict[str, Any]]] = None,
+        useful_memory_ids: list[str] | None = None,
+        recalled_memory_ids: list[str] | None = None,
+        memory_actions: list[dict[str, Any]] | None = None,
         memory_scope: str = "public",
-    ) -> List[BaseMemory]:
+    ) -> list[BaseMemory]:
         resolved_scope = self._normalize_scope(memory_scope)
-        created_memories: List[BaseMemory] = []
+        created_memories: list[BaseMemory] = []
 
         useful_ids = [str(x).strip() for x in (useful_memory_ids or []) if str(x).strip()]
         recalled_ids = [str(x).strip() for x in (recalled_memory_ids or []) if str(x).strip()]
@@ -1987,7 +1922,7 @@ class MemorySqlManager:
             if useless_recalled:
                 await self.decay_recalled_but_useless(useless_recalled, delta=1)
 
-        for action_data in (memory_actions or []):
+        for action_data in memory_actions or []:
             action = str(action_data.get("action", "") or "").strip().lower()
             memory_data = action_data.get("memory")
             if not isinstance(memory_data, dict):
@@ -1999,13 +1934,9 @@ class MemorySqlManager:
                 continue
 
             if action == "create":
-                existing = await asyncio.to_thread(
-                    self._find_memory_id_by_judgment_sync, judgment, resolved_scope
-                )
+                existing = await asyncio.to_thread(self._find_memory_id_by_judgment_sync, judgment, resolved_scope)
                 if existing:
-                    self.logger.debug(
-                        f"跳过重复记忆: judgment={judgment[:30]} scope={resolved_scope}"
-                    )
+                    self.logger.debug(f"跳过重复记忆: judgment={judgment[:30]} scope={resolved_scope}")
                     continue
                 memory = await self.remember(
                     memory_type=str(memory_data.get("type") or "knowledge"),
@@ -2039,16 +1970,12 @@ class MemorySqlManager:
 
     def _merge_action_sync(
         self,
-        source_memory_ids: List[str],
-        memory_data: Dict[str, Any],
+        source_memory_ids: list[str],
+        memory_data: dict[str, Any],
         resolved_scope: str,
-    ) -> Optional[BaseMemory]:
+    ) -> BaseMemory | None:
         source_ids = list(
-            dict.fromkeys(
-                str(memory_id).strip()
-                for memory_id in (source_memory_ids or [])
-                if str(memory_id).strip()
-            )
+            dict.fromkeys(str(memory_id).strip() for memory_id in (source_memory_ids or []) if str(memory_id).strip())
         )
         if not source_ids:
             return None

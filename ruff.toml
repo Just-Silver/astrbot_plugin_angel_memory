@@ -1,0 +1,23 @@
+# 门禁对齐 AstrBot 主项目（pyproject.toml 的 [tool.ruff.lint]）：
+# F / W / E / ASYNC / C4 / Q / I / UP，忽略主项目同样忽略的四项。
+# 与主项目的差异只有一处：line-length 取 120（主项目 88）。
+line-length = 120
+target-version = "py310"
+
+# Markdown 代码块属于文档内容（含已归档计划书），不能被代码格式化改写。
+extend-exclude = ["*.md"]
+
+[lint]
+select = ["F", "W", "E", "ASYNC", "C4", "Q", "I", "UP"]
+ignore = [
+    "F403",
+    "F405",
+    "E501",
+    "ASYNC230",
+    "ASYNC240",
+]
+
+[lint.per-file-ignores]
+# 测试需先注入 sys.path / astrbot 桩模块，再导入被测模块，E402 在此结构下属必然结果。
+# 主项目同样把 tests 整体排除在 ruff 之外。
+"tests/**" = ["E402"]

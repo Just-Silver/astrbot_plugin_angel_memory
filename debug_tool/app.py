@@ -5,7 +5,6 @@ import os
 import re
 
 import streamlit as st
-
 from utils.config_loader import ConfigLoader
 from utils.db import DBManager
 
@@ -50,9 +49,7 @@ def render_item(item, show_hit_count: bool = False):
             ts = float(meta.get("created_at"))
             if ts > 1e11:
                 ts /= 1000
-            header.append(
-                f"🕒 {datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')}"
-            )
+            header.append(f"🕒 {datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')}")
         except Exception:
             pass
     if meta.get("strength") is not None:
@@ -374,9 +371,7 @@ elif mode == "🗂️ 中央笔记索引":
     for row in items:
         with st.container(border=True):
             st.markdown(f"**{row.get('source_file_path', '')}**")
-            st.caption(
-                f"note_short_id: {row.get('note_short_id', -1)} | total_lines: {row.get('total_lines', 0)}"
-            )
+            st.caption(f"note_short_id: {row.get('note_short_id', -1)} | total_lines: {row.get('total_lines', 0)}")
             with st.expander("详情"):
                 st.json(row)
 
@@ -406,7 +401,7 @@ elif mode == "📝 angel_note_read 模拟":
         elif not os.path.exists(target):
             st.error(f"文件不存在：{rel}")
         else:
-            with open(target, "r", encoding="utf-8", errors="ignore") as f:
+            with open(target, encoding="utf-8", errors="ignore") as f:
                 text = f.read()
             lines = text.splitlines()
             total_lines = len(lines)
@@ -417,7 +412,7 @@ elif mode == "📝 angel_note_read 模拟":
             else:
                 actual_start = min(max(1, int(offset)), total_lines)
                 actual_end = min(actual_start + int(limit) - 1, total_lines)
-                seg = "\n".join(lines[actual_start - 1: actual_end])
+                seg = "\n".join(lines[actual_start - 1 : actual_end])
             st.caption(
                 f"note_short_id={int(note_short_id)} | total_lines={total_lines} | "
                 f"actual_start_line={actual_start} | actual_end_line={actual_end}"
@@ -507,7 +502,7 @@ elif mode == "📂 浏览笔记文件":
     selected = st.selectbox("选择文件", md_files, index=0)
     full_path = os.path.join(raw_dir, selected.replace("/", os.sep))
     try:
-        with open(full_path, "r", encoding="utf-8") as f:
+        with open(full_path, encoding="utf-8") as f:
             content = f.read()
         st.caption(selected)
         st.markdown(content)

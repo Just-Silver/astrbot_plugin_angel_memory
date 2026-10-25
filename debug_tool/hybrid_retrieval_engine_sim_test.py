@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -19,7 +19,7 @@ class FakeRetriever:
         self.bm25_calls: int = 0
         self.fusion_calls: int = 0
 
-    def bm25_only(self, query: str, limit: int) -> List[Dict[str, Any]]:
+    def bm25_only(self, query: str, limit: int) -> list[dict[str, Any]]:
         self.bm25_calls += 1
         _ = query
         base = [
@@ -29,7 +29,7 @@ class FakeRetriever:
         ]
         return base[: max(0, int(limit))]
 
-    def fusion(self, query: str, limit: int, bm25_limit: int, vector_scores: Dict[str, float]) -> List[Dict[str, Any]]:
+    def fusion(self, query: str, limit: int, bm25_limit: int, vector_scores: dict[str, float]) -> list[dict[str, Any]]:
         self.fusion_calls += 1
         _ = query, bm25_limit
         rows = []
@@ -44,7 +44,7 @@ class FakeRerankProvider:
     def __init__(self):
         self.called = False
 
-    def rerank(self, query: str, documents: List[str], top_n: int) -> Dict[str, Any]:
+    def rerank(self, query: str, documents: list[str], top_n: int) -> dict[str, Any]:
         self.called = True
         _ = query, top_n
         # 用文本中携带的 "rank:N" 人工控制重排顺序。
@@ -65,12 +65,12 @@ class FakeRerankProvider:
 class FailingRerankProvider:
     """模拟重排异常。"""
 
-    def rerank(self, query: str, documents: List[str], top_n: int) -> Dict[str, Any]:
+    def rerank(self, query: str, documents: list[str], top_n: int) -> dict[str, Any]:
         _ = query, documents, top_n
         raise RuntimeError("mock rerank failure")
 
 
-def _build_doc_text_map(ids: List[str]) -> Dict[str, str]:
+def _build_doc_text_map(ids: list[str]) -> dict[str, str]:
     # 手工指定 rank 值，让重排顺序可预测。
     rank_map = {
         "m1": 0.2,
@@ -164,9 +164,7 @@ async def _run_all() -> None:
         fusion_search=fake.fusion,
         build_doc_text_map=_build_doc_text_map,
     )
-    assert [x["id"] for x in tier3_fallback_bm25] == ["m1", "m2"], (
-        f"重排失败降级(无向量)失败: {tier3_fallback_bm25}"
-    )
+    assert [x["id"] for x in tier3_fallback_bm25] == ["m1", "m2"], f"重排失败降级(无向量)失败: {tier3_fallback_bm25}"
 
     print("HybridRetrievalEngine 模拟测试通过：档1/档2/档3 全部通过")
 

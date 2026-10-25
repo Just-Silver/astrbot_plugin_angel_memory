@@ -6,7 +6,7 @@ import os
 import sqlite3
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import faiss
 import numpy as np
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class DBManager:
-    def __init__(self, loader: ConfigLoader, provider_config: Optional[dict]):
+    def __init__(self, loader: ConfigLoader, provider_config: dict | None):
         self.loader = loader
         self.provider_config = provider_config or {}
         self.provider_id = self.provider_config.get("id", "")
@@ -41,9 +41,7 @@ class DBManager:
         """连接中央记忆数据库（SQLite），若文件存在则建连并设置 row_factory"""
         try:
             if os.path.exists(self.simple_db_path):
-                self.central_conn = sqlite3.connect(
-                    self.simple_db_path, check_same_thread=False
-                )
+                self.central_conn = sqlite3.connect(self.simple_db_path, check_same_thread=False)
                 self.central_conn.row_factory = sqlite3.Row
                 logger.info("[调试工具] 中央记忆数据库连接完成: %s", self.simple_db_path)
             else:
@@ -87,11 +85,9 @@ class DBManager:
         return os.path.join(self.faiss_path, f"{collection_name}.index")
 
     def _has_faiss_collection(self, collection_name: str) -> bool:
-        return os.path.exists(self._sidecar_path(collection_name)) and os.path.exists(
-            self._index_path(collection_name)
-        )
+        return os.path.exists(self._sidecar_path(collection_name)) and os.path.exists(self._index_path(collection_name))
 
-    def get_overview(self) -> Dict[str, Any]:
+    def get_overview(self) -> dict[str, Any]:
         """返回调试工具整体状态概览，包含向量库、中央库、备份等统计信息"""
         out = {
             "provider_id": self.provider_id or "(未检测到可用 embedding provider)",
@@ -116,7 +112,7 @@ class DBManager:
 
     # ===== vector =====
 
-    def get_collections(self) -> List[str]:
+    def get_collections(self) -> list[str]:
         """获取所有 FAISS 集合名列表。"""
         if not self.has_vector_db():
             return []
@@ -133,7 +129,7 @@ class DBManager:
             logger.warning("[调试工具] FAISS集合列表查询失败: %s", e)
             return []
 
-    def get_collection_stats(self, collection_name: str) -> Dict[str, Any]:
+    def get_collection_stats(self, collection_name: str) -> dict[str, Any]:
         """获取指定 FAISS 集合的 sidecar 记录数与 index 记录数。"""
         if not self._has_faiss_collection(collection_name):
             return {"count": 0, "ntotal": 0}
@@ -187,13 +183,13 @@ class DBManager:
             return []
 
     @staticmethod
-    def _normalize_vector(vector: List[float]) -> np.ndarray:
+    def _normalize_vector(vector: list[float]) -> np.ndarray:
         arr = np.asarray(vector, dtype="float32").reshape(1, -1)
         norm = np.linalg.norm(arr, axis=1, keepdims=True)
         norm[norm == 0] = 1.0
         return arr / norm
 
-    def _load_faiss_id_map(self, collection_name: str, vector_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+    def _load_faiss_id_map(self, collection_name: str, vector_ids: list[int]) -> dict[int, dict[str, Any]]:
         if not vector_ids:
             return {}
         placeholders = ",".join(["?" for _ in vector_ids])
@@ -221,7 +217,7 @@ class DBManager:
             for row in rows
         }
 
-    def _embed_query(self, query_text: str) -> Optional[List[float]]:
+    def _embed_query(self, query_text: str) -> list[float] | None:
         if not self.embedding_fn:
             return None
         result = self.embedding_fn([query_text])
@@ -234,8 +230,8 @@ class DBManager:
         collection_name: str,
         query_text: str,
         n_results: int = 10,
-        where_filter: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, Any]]:
+        where_filter: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """查询 FAISS 集合，返回排序后的匹配记录及 cosine score。"""
         del where_filter
         if not self._has_faiss_collection(collection_name):
@@ -249,14 +245,7 @@ class DBManager:
             index = faiss.read_index(self._index_path(collection_name))
             vector = self._normalize_vector(query_vector)
             if int(vector.shape[1]) != int(index.d):
-                return [
-                    {
-                        "error": (
-                            f"查询向量维度不匹配：query_dim={vector.shape[1]} "
-                            f"index_dim={index.d}"
-                        )
-                    }
-                ]
+                return [{"error": (f"查询向量维度不匹配：query_dim={vector.shape[1]} index_dim={index.d}")}]
             top_k = min(max(1, int(n_results)), int(index.ntotal))
             scores, ids = index.search(vector, top_k)
             vector_ids = [int(x) for x in ids[0].tolist() if int(x) >= 0]
@@ -286,7 +275,7 @@ class DBManager:
 
     # ===== central memory =====
 
-    def get_central_stats(self) -> Dict[str, Any]:
+    def get_central_stats(self) -> dict[str, Any]:
         """获取中央记忆统计：记忆总数、标签总数、作用域列表"""
         if not self.central_conn:
             return {"memory_count": 0, "global_tag_count": 0, "scopes": []}
@@ -296,9 +285,7 @@ class DBManager:
             memory_count = int(c.fetchone()["cnt"])
             c.execute("SELECT COUNT(*) AS cnt FROM global_tags")
             tag_count = int(c.fetchone()["cnt"])
-            c.execute(
-                "SELECT DISTINCT memory_scope FROM memory_records ORDER BY memory_scope ASC"
-            )
+            c.execute("SELECT DISTINCT memory_scope FROM memory_records ORDER BY memory_scope ASC")
             scopes = [row["memory_scope"] for row in c.fetchall() if row["memory_scope"]]
             return {
                 "memory_count": memory_count,
@@ -322,19 +309,14 @@ class DBManager:
             return ([], 0) if return_total else []
         try:
             where = []
-            params: List[Any] = []
+            params: list[Any] = []
 
             if (scope or "").strip():
                 where.append("mr.memory_scope = ?")
                 params.append(scope.strip())
 
             if (keyword or "").strip():
-                kw = (
-                    keyword.strip()
-                    .replace("\\", "\\\\")
-                    .replace("%", "\\%")
-                    .replace("_", "\\_")
-                )
+                kw = keyword.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 where.append(
                     "(mr.judgment LIKE ? ESCAPE '\\' OR mr.reasoning LIKE ? ESCAPE '\\' OR IFNULL(tags.tags_text, '') LIKE ? ESCAPE '\\')"
                 )
@@ -411,7 +393,7 @@ class DBManager:
             return []
         try:
             where_sql = ""
-            params: List[Any] = []
+            params: list[Any] = []
             if (keyword or "").strip():
                 where_sql = "WHERE gt.name LIKE ? ESCAPE '\\'"
                 kw = keyword.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -438,9 +420,7 @@ class DBManager:
             logger.error("[调试工具] 全局标签查询失败: %s", e, exc_info=True)
             return []
 
-    def unified_tag_hit_search(
-        self, query_text: str, limit: int = 50, scope: str = ""
-    ) -> Dict[str, Any]:
+    def unified_tag_hit_search(self, query_text: str, limit: int = 50, scope: str = "") -> dict[str, Any]:
         """统一标签命中搜索：从查询文本中匹配标签名，返回命中的记忆记录"""
         if not self.central_conn:
             return {"matched_tags": [], "matched_tag_ids": [], "memory_hits": []}
@@ -461,7 +441,7 @@ class DBManager:
 
             placeholders = ",".join(["?" for _ in tag_ids])
             scope_clause = ""
-            scope_params: List[Any] = []
+            scope_params: list[Any] = []
             if (scope or "").strip():
                 s = scope.strip()
                 if s == "public":
@@ -494,7 +474,7 @@ class DBManager:
                 ORDER BY hit_count DESC, day_bucket DESC, mr.strength DESC, mr.created_at DESC
                 LIMIT ?
             """
-            params: List[Any] = [*tag_ids, *scope_params, int(limit)]
+            params: list[Any] = [*tag_ids, *scope_params, int(limit)]
             cur.execute(sql, params)
             rows = cur.fetchall()
             memory_hits = []
@@ -528,7 +508,7 @@ class DBManager:
 
     # ===== note file registry =====
 
-    def get_note_index_stats(self) -> Dict[str, int]:
+    def get_note_index_stats(self) -> dict[str, int]:
         """获取笔记文件注册表统计。"""
         if not self.central_conn:
             return {"note_index_count": 0}
@@ -553,14 +533,9 @@ class DBManager:
             return ([], 0) if return_total else []
         try:
             where_sql = ""
-            params: List[Any] = []
+            params: list[Any] = []
             if (keyword or "").strip():
-                kw = (
-                    keyword.strip()
-                    .replace("\\", "\\\\")
-                    .replace("%", "\\%")
-                    .replace("_", "\\_")
-                )
+                kw = keyword.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 where_sql = "WHERE nir.source_file_path LIKE ? ESCAPE '\\'"
                 like = f"%{kw}%"
                 params.append(like)
@@ -602,7 +577,7 @@ class DBManager:
             logger.error("[调试工具] 笔记索引记录浏览失败: %s", e, exc_info=True)
             return ([], 0) if return_total else []
 
-    def get_note_index_by_short_id(self, note_short_id: int) -> Optional[Dict[str, Any]]:
+    def get_note_index_by_short_id(self, note_short_id: int) -> dict[str, Any] | None:
         """根据短ID查询单条笔记索引记录的完整信息"""
         if not self.central_conn:
             return None
@@ -638,7 +613,7 @@ class DBManager:
     # ===== import / export =====
 
     @staticmethod
-    def _parse_tags(value: Any) -> List[str]:
+    def _parse_tags(value: Any) -> list[str]:
         """将多种格式的标签值（列表/JSON字符串/逗号分隔）统一解析为字符串列表"""
         if isinstance(value, list):
             return [str(x).strip() for x in value if str(x).strip()]
@@ -656,27 +631,29 @@ class DBManager:
             return [x.strip() for x in stripped.split(",") if x.strip()]
         return []
 
-    def _replace_tags(self, conn: sqlite3.Connection, memory_id: str, tags: List[str]):
+    def _replace_tags(self, conn: sqlite3.Connection, memory_id: str, tags: list[str]):
         """替换指定记忆的标签关联：先清旧关联，再建新标签和关联"""
         conn.execute("DELETE FROM memory_tag_rel WHERE memory_id = ?", (memory_id,))
         if not tags:
             return
         conn.executemany("INSERT OR IGNORE INTO global_tags(name) VALUES (?)", [(t,) for t in tags])
         placeholders = ",".join(["?" for _ in tags])
-        rows = conn.execute(
-            f"SELECT id, name FROM global_tags WHERE name IN ({placeholders})", tuple(tags)
-        ).fetchall()
+        rows = conn.execute(f"SELECT id, name FROM global_tags WHERE name IN ({placeholders})", tuple(tags)).fetchall()
         id_map = {str(r["name"]): int(r["id"]) for r in rows}
         rel = [(memory_id, id_map[t]) for t in tags if t in id_map]
         if rel:
-            conn.executemany(
-                "INSERT OR IGNORE INTO memory_tag_rel(memory_id, tag_id) VALUES (?, ?)", rel
-            )
+            conn.executemany("INSERT OR IGNORE INTO memory_tag_rel(memory_id, tag_id) VALUES (?, ?)", rel)
 
-    def export_central_snapshot(self) -> Dict[str, Any]:
+    def export_central_snapshot(self) -> dict[str, Any]:
         """导出中央记忆的完整快照（记录+标签+关联），用于备份和迁移"""
         if not self.central_conn:
-            return {"schema_version": 1, "exported_at": int(time.time()), "records": [], "global_tags": [], "memory_tag_rel": []}
+            return {
+                "schema_version": 1,
+                "exported_at": int(time.time()),
+                "records": [],
+                "global_tags": [],
+                "memory_tag_rel": [],
+            }
         cur = self.central_conn.cursor()
         records = [
             dict(row)
@@ -700,7 +677,7 @@ class DBManager:
             "memory_tag_rel": rel,
         }
 
-    def _upsert_by_judgment(self, conn: sqlite3.Connection, item: Dict[str, Any]) -> str:
+    def _upsert_by_judgment(self, conn: sqlite3.Connection, item: dict[str, Any]) -> str:
         """按 judgment 去重插入或更新记忆记录，返回 insert/upsert/skip"""
         judgment = str(item.get("judgment") or "").strip()
         if not judgment:
@@ -785,15 +762,15 @@ class DBManager:
         self._replace_tags(conn, memory_id, tags)
         return "insert"
 
-    def import_central_payload(self, payload: Any) -> Dict[str, int]:
+    def import_central_payload(self, payload: Any) -> dict[str, int]:
         """导入记忆数据（支持 records/memories/数组三种格式），返回各操作计数"""
         if not self.central_conn:
             return {"inserted": 0, "upserted": 0, "skipped": 0, "failed": 1}
 
         if isinstance(payload, dict) and isinstance(payload.get("records"), list):
             records = payload["records"]
-            rel_map: Dict[str, List[str]] = {}
-            tags_map: Dict[int, str] = {}
+            rel_map: dict[str, list[str]] = {}
+            tags_map: dict[int, str] = {}
             for row in payload.get("global_tags", []) or []:
                 try:
                     tags_map[int(row.get("id"))] = str(row.get("name"))
@@ -841,17 +818,17 @@ class DBManager:
 
     # ===== maintenance =====
 
-    def get_maintenance_state(self) -> Dict[str, Any]:
+    def get_maintenance_state(self) -> dict[str, Any]:
         """读取维护状态文件，返回上次维护的执行状态"""
         if not os.path.exists(self.maintenance_state_path):
             return {}
         try:
-            with open(self.maintenance_state_path, "r", encoding="utf-8") as f:
+            with open(self.maintenance_state_path, encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
             return {"error": str(e)}
 
-    def list_backups(self) -> List[Dict[str, Any]]:
+    def list_backups(self) -> list[dict[str, Any]]:
         """列出备份目录下所有 JSON 备份文件及其元信息"""
         if not os.path.exists(self.backup_dir):
             return []
@@ -867,19 +844,17 @@ class DBManager:
                         "name": name,
                         "path": path,
                         "size_kb": round(stat.st_size / 1024, 2),
-                        "modified": datetime.datetime.fromtimestamp(stat.st_mtime).strftime(
-                            "%Y-%m-%d %H:%M:%S"
-                        ),
+                        "modified": datetime.datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
                     }
                 )
             except Exception:
                 continue
         return rows
 
-    def load_backup_preview(self, path: str) -> Dict[str, Any]:
+    def load_backup_preview(self, path: str) -> dict[str, Any]:
         """加载备份文件的预览信息（版本、记录数、标签数等）"""
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             return {
                 "schema_version": data.get("schema_version"),
@@ -893,7 +868,7 @@ class DBManager:
 
     # ===== delete =====
 
-    def delete_memory_by_id(self, memory_id: str) -> Dict[str, Any]:
+    def delete_memory_by_id(self, memory_id: str) -> dict[str, Any]:
         """
         安全删除单条记忆（向量 + SQL 关联 + 主记录）
 
@@ -928,13 +903,9 @@ class DBManager:
             try:
                 with self.central_conn:
                     # 删除标签关联
-                    self.central_conn.execute(
-                        "DELETE FROM memory_tag_rel WHERE memory_id = ?", (memory_id,)
-                    )
+                    self.central_conn.execute("DELETE FROM memory_tag_rel WHERE memory_id = ?", (memory_id,))
                     # 删除主记录
-                    cursor = self.central_conn.execute(
-                        "DELETE FROM memory_records WHERE id = ?", (memory_id,)
-                    )
+                    cursor = self.central_conn.execute("DELETE FROM memory_records WHERE id = ?", (memory_id,))
                     if cursor.rowcount > 0:
                         deleted_from.append("memory_records")
                         deleted_from.append("memory_tag_rel")

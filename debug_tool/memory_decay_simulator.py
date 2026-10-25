@@ -4,7 +4,6 @@ import argparse
 import random
 import statistics
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
 
 
 @dataclass
@@ -183,7 +182,7 @@ class MemoryProfile:
     p_end: float = 0.0
     # 特殊策略
     mode: str = "linear"  # linear | yearly_once
-    hot_days: int = 0     # 阶段性高频时长
+    hot_days: int = 0  # 阶段性高频时长
     # 每日新增（随机刷新）配置
     new_prob: float = 0.2
     new_min: int = 0
@@ -206,11 +205,11 @@ def simulate_once(
     tier0_speed: float,
     tier1_speed: float,
     tier2_speed: float,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     rng = random.Random(seed)
     total_days = years * 365
 
-    memories: List[Memory] = [
+    memories: list[Memory] = [
         make_memory(
             rng=rng,
             day=0,
@@ -226,7 +225,7 @@ def simulate_once(
         )
         for _ in range(initial_memories)
     ]
-    all_memories: List[Memory] = list(memories)
+    all_memories: list[Memory] = list(memories)
 
     for day in range(1, total_days + 1):
         for _ in range(daily_new_memories):
@@ -246,7 +245,7 @@ def simulate_once(
             memories.append(m)
             all_memories.append(m)
 
-        alive: List[Memory] = []
+        alive: list[Memory] = []
         for m in memories:
             if m.deleted_day is not None:
                 continue
@@ -295,10 +294,7 @@ def simulate_once(
     deleted = [m for m in passive if m.deleted_day is not None]
     survivors = [m for m in passive if m.deleted_day is None]
 
-    lifetimes = [
-        (m.deleted_day if m.deleted_day is not None else total_days) - m.created_day
-        for m in passive
-    ]
+    lifetimes = [(m.deleted_day if m.deleted_day is not None else total_days) - m.created_day for m in passive]
 
     avg_life = statistics.mean(lifetimes) if lifetimes else 0.0
     p90_life = statistics.quantiles(lifetimes, n=10)[8] if len(lifetimes) >= 10 else avg_life
@@ -363,7 +359,7 @@ def _new_memories_today(rng: random.Random, profile: MemoryProfile) -> int:
     return rng.randint(lo, hi)
 
 
-def _pick_profile_for_new_memory(rng: random.Random, profiles: List[MemoryProfile]) -> MemoryProfile:
+def _pick_profile_for_new_memory(rng: random.Random, profiles: list[MemoryProfile]) -> MemoryProfile:
     """按画像权重选择新增记忆来源。"""
     if not profiles:
         raise ValueError("profiles 不能为空")
@@ -386,7 +382,7 @@ def simulate_profiles_once(
     cycle_1d: int,
     cycle_7d: int,
     cycle_30d: int,
-    profiles: List[MemoryProfile],
+    profiles: list[MemoryProfile],
     recall_topk: int,
     useful_prob: float,
     daily_calls_min: int,
@@ -396,11 +392,11 @@ def simulate_profiles_once(
     tier0_speed: float,
     tier1_speed: float,
     tier2_speed: float,
-) -> Tuple[Dict[str, Dict[str, float]], List[float]]:
+) -> tuple[dict[str, dict[str, float]], list[float]]:
     rng = random.Random(seed)
     total_days = years * 365
 
-    memories: List[Memory] = []
+    memories: list[Memory] = []
     for profile in profiles:
         for _ in range(profile.count):
             useful_count = 0
@@ -425,7 +421,7 @@ def simulate_profiles_once(
     profile_map = {p.name: p for p in profiles}
     peak_alive_total = len(memories)
     initial_total = len(memories)
-    monthly_alive: List[float] = []
+    monthly_alive: list[float] = []
 
     for day in range(1, total_days + 1):
         # 1) 限额召回：每天 10~30 次，每次最多 10 条
@@ -454,16 +450,13 @@ def simulate_profiles_once(
                 )
             )
 
-        alive_by_profile: Dict[str, List[Memory]] = {}
+        alive_by_profile: dict[str, list[Memory]] = {}
         for m in memories:
             if m.deleted_day is None and not m.is_active:
                 alive_by_profile.setdefault(m.profile, []).append(m)
 
         if recall_slots > 0 and alive_by_profile:
-            weights = [
-                _profile_day_weight(day=day, total_days=total_days, profile=p)
-                for p in profiles
-            ]
+            weights = [_profile_day_weight(day=day, total_days=total_days, profile=p) for p in profiles]
             total_w = sum(weights)
             if total_w <= 0:
                 weights = [1.0 for _ in profiles]
@@ -550,16 +543,13 @@ def simulate_profiles_once(
         if day % 30 == 0 or day == total_days:
             monthly_alive.append(float(alive_total))
 
-    by_name: Dict[str, List[Memory]] = {}
+    by_name: dict[str, list[Memory]] = {}
     for m in memories:
         by_name.setdefault(m.profile, []).append(m)
 
-    out: Dict[str, Dict[str, float]] = {}
+    out: dict[str, dict[str, float]] = {}
     for name, arr in by_name.items():
-        lifetimes = [
-            (m.deleted_day if m.deleted_day is not None else total_days) - m.created_day
-            for m in arr
-        ]
+        lifetimes = [(m.deleted_day if m.deleted_day is not None else total_days) - m.created_day for m in arr]
         deleted = [m for m in arr if m.deleted_day is not None]
         survive = [m for m in arr if m.deleted_day is None]
         out[name] = {
@@ -568,7 +558,9 @@ def simulate_profiles_once(
             "deleted_ratio": len(deleted) / len(arr) if arr else 0.0,
             "survive_10y_ratio": len(survive) / len(arr) if arr else 0.0,
             "avg_lifetime_days": statistics.mean(lifetimes) if lifetimes else 0.0,
-            "p90_lifetime_days": statistics.quantiles(lifetimes, n=10)[8] if len(lifetimes) >= 10 else (statistics.mean(lifetimes) if lifetimes else 0.0),
+            "p90_lifetime_days": statistics.quantiles(lifetimes, n=10)[8]
+            if len(lifetimes) >= 10
+            else (statistics.mean(lifetimes) if lifetimes else 0.0),
         }
     out["_overall"] = {
         "initial_total": float(initial_total),
@@ -587,8 +579,8 @@ def run_grid(
     years: int,
     repeats: int,
     seed: int,
-    strengths: List[int],
-    boosts: List[int],
+    strengths: list[int],
+    boosts: list[int],
     initial_memories: int,
     daily_new_memories: int,
     active_ratio: float,
@@ -600,11 +592,11 @@ def run_grid(
     tier0_speed: float,
     tier1_speed: float,
     tier2_speed: float,
-) -> List[Tuple[Tuple[int, int], Dict[str, float]]]:
-    rows: List[Tuple[Tuple[int, int], Dict[str, float]]] = []
+) -> list[tuple[tuple[int, int], dict[str, float]]]:
+    rows: list[tuple[tuple[int, int], dict[str, float]]] = []
     for s in strengths:
         for b in boosts:
-            agg: Dict[str, float] = {
+            agg: dict[str, float] = {
                 "passive_total": 0.0,
                 "deleted_ratio": 0.0,
                 "survive_10y_ratio": 0.0,
@@ -696,9 +688,7 @@ def main() -> None:
         )
 
         print("=== 10年记忆衰减模拟（网格模式） ===")
-        print(
-            "strength boost | deleted_ratio survive_10y avg_life_days p90_life_days passive_total"
-        )
+        print("strength boost | deleted_ratio survive_10y avg_life_days p90_life_days passive_total")
         for (s, b), m in rows:
             print(
                 f"{s:>8} {b:>5} | "
@@ -712,17 +702,71 @@ def main() -> None:
 
     profiles = [
         # 短期背书：前60天高频，之后几乎不用
-        MemoryProfile(name="短期背书后弃用", count=300, initial_strength=8, p_start=0.80, p_mid=0.05, p_end=0.00, hot_days=60, new_prob=0.30, new_min=0, new_max=2),
+        MemoryProfile(
+            name="短期背书后弃用",
+            count=300,
+            initial_strength=8,
+            p_start=0.80,
+            p_mid=0.05,
+            p_end=0.00,
+            hot_days=60,
+            new_prob=0.30,
+            new_min=0,
+            new_max=2,
+        ),
         # 天天可见：长期稳定高频
-        MemoryProfile(name="日常天天可见", count=300, initial_strength=6, p_start=0.35, p_mid=0.35, p_end=0.35, new_prob=0.80, new_min=1, new_max=4),
+        MemoryProfile(
+            name="日常天天可见",
+            count=300,
+            initial_strength=6,
+            p_start=0.35,
+            p_mid=0.35,
+            p_end=0.35,
+            new_prob=0.80,
+            new_min=1,
+            new_max=4,
+        ),
         # 近期频繁，后续消失
-        MemoryProfile(name="近期高频后消失", count=300, initial_strength=7, p_start=0.45, p_mid=0.10, p_end=0.00, hot_days=180, new_prob=0.45, new_min=0, new_max=3),
+        MemoryProfile(
+            name="近期高频后消失",
+            count=300,
+            initial_strength=7,
+            p_start=0.45,
+            p_mid=0.10,
+            p_end=0.00,
+            hot_days=180,
+            new_prob=0.45,
+            new_min=0,
+            new_max=3,
+        ),
         # 每年温习一次
-        MemoryProfile(name="每年温习一次", count=300, initial_strength=6, mode="yearly_once", new_prob=0.15, new_min=0, new_max=1),
+        MemoryProfile(
+            name="每年温习一次", count=300, initial_strength=6, mode="yearly_once", new_prob=0.15, new_min=0, new_max=1
+        ),
         # 低频偶遇
-        MemoryProfile(name="偶发低频记忆", count=300, initial_strength=5, p_start=0.03, p_mid=0.02, p_end=0.01, new_prob=0.70, new_min=1, new_max=6),
+        MemoryProfile(
+            name="偶发低频记忆",
+            count=300,
+            initial_strength=5,
+            p_start=0.03,
+            p_mid=0.02,
+            p_end=0.01,
+            new_prob=0.70,
+            new_min=1,
+            new_max=6,
+        ),
         # 几乎不用
-        MemoryProfile(name="一次性噪声", count=300, initial_strength=4, p_start=0.005, p_mid=0.002, p_end=0.0, new_prob=0.95, new_min=3, new_max=10),
+        MemoryProfile(
+            name="一次性噪声",
+            count=300,
+            initial_strength=4,
+            p_start=0.005,
+            p_mid=0.002,
+            p_end=0.0,
+            new_prob=0.95,
+            new_min=3,
+            new_max=10,
+        ),
     ]
     # 按你的真实口径：记忆从 0 条开始，仅靠每日召回调用产生新记忆
     for p in profiles:
@@ -737,8 +781,8 @@ def main() -> None:
     )
     print("profile | deleted_ratio survive_10y avg_life_days p90_life_days count")
     for boost in boosts:
-        agg: Dict[str, Dict[str, float]] = {}
-        monthly_agg: List[float] = []
+        agg: dict[str, dict[str, float]] = {}
+        monthly_agg: list[float] = []
         for i in range(args.repeats):
             res, monthly = simulate_profiles_once(
                 years=args.years,
@@ -760,7 +804,7 @@ def main() -> None:
             )
             for k, v in res.items():
                 if k not in agg:
-                    agg[k] = {kk: 0.0 for kk in v}
+                    agg[k] = dict.fromkeys(v, 0.0)
                 for kk, vv in v.items():
                     agg[k][kk] += vv
             if not monthly_agg:
@@ -791,9 +835,7 @@ def main() -> None:
                 f"10年末存活={end_total:.0f} 净增长倍数={growth:.2f}x "
                 f"累计创建={created_total:.0f} 被遗忘={forgotten_total:.0f}"
             )
-            print(
-                f"分档存活: tier0={tier0_alive:.0f} tier1={tier1_alive:.0f} tier2={tier2_alive:.0f}"
-            )
+            print(f"分档存活: tier0={tier0_alive:.0f} tier1={tier1_alive:.0f} tier2={tier2_alive:.0f}")
         for name in [p.name for p in profiles]:
             m = agg.get(
                 name,
@@ -814,7 +856,7 @@ def main() -> None:
                 f"{m['count']:.0f}"
             )
         if monthly_agg:
-            print("月度存活总量: " + ", ".join(f"M{idx+1}={int(v)}" for idx, v in enumerate(monthly_agg)))
+            print("月度存活总量: " + ", ".join(f"M{idx + 1}={int(v)}" for idx, v in enumerate(monthly_agg)))
 
 
 if __name__ == "__main__":

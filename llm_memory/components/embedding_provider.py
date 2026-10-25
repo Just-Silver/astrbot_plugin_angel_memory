@@ -5,17 +5,17 @@
 通过工厂模式实现智能降级和配置驱动。
 """
 
-from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
 import asyncio
+import gc
 import importlib
 import re
 import subprocess
+import sys
 import threading
 import time
-import gc
-import sys
+from abc import ABC, abstractmethod
 from collections import OrderedDict
+from typing import Any
 
 # 尝试导入astrbot logger，如果失败则使用标准库logger
 try:
@@ -42,7 +42,7 @@ class EmbeddingCache:
             max_memory_mb: 最大内存占用（MB），默认100MB
             ttl_minutes: 缓存项过期时间（分钟），默认30分钟
         """
-        self._cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self._cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._lock = threading.RLock()
         self._max_memory_bytes = int(max_memory_mb * 1024 * 1024)
         self._current_memory_bytes = 0
@@ -51,7 +51,7 @@ class EmbeddingCache:
         self._ttl_seconds = ttl_minutes * 60  # 转换为秒
         self._cleanup_threshold = 50  # 每次访问50项时执行一次清理检查
 
-    def _estimate_size(self, text: str, embedding: List[float]) -> int:
+    def _estimate_size(self, text: str, embedding: list[float]) -> int:
         """
         估算缓存项的内存大小
 
@@ -70,7 +70,7 @@ class EmbeddingCache:
         metadata_size = 64
         return text_size + embedding_size + metadata_size
 
-    def _is_expired(self, cache_item: Dict[str, Any]) -> bool:
+    def _is_expired(self, cache_item: dict[str, Any]) -> bool:
         """
         检查缓存项是否过期
 
@@ -111,7 +111,7 @@ class EmbeddingCache:
         if expired_keys:
             logger.debug(f"清理了 {len(expired_keys)} 个过期缓存项")
 
-    def get(self, text: str) -> Optional[List[float]]:
+    def get(self, text: str) -> list[float] | None:
         """
         从缓存获取向量
 
@@ -145,7 +145,7 @@ class EmbeddingCache:
                 self._miss_count += 1
                 return None
 
-    def put(self, text: str, embedding: List[float]) -> None:
+    def put(self, text: str, embedding: list[float]) -> None:
         """
         将向量放入缓存
 
@@ -171,10 +171,7 @@ class EmbeddingCache:
                 return
 
             # 淘汰旧项直到有足够空间
-            while (
-                self._current_memory_bytes + new_size > self._max_memory_bytes
-                and self._cache
-            ):
+            while self._current_memory_bytes + new_size > self._max_memory_bytes and self._cache:
                 # 删除最旧的项（FIFO）
                 oldest_key, oldest_value = self._cache.popitem(last=False)
                 oldest_size = self._estimate_size(oldest_key, oldest_value["embedding"])
@@ -184,9 +181,7 @@ class EmbeddingCache:
             self._cache[text] = {"embedding": embedding, "timestamp": time.time()}
             self._current_memory_bytes += new_size
 
-    def get_batch(
-        self, texts: List[str]
-    ) -> tuple[List[Optional[List[float]]], List[int]]:
+    def get_batch(self, texts: list[str]) -> tuple[list[list[float] | None], list[int]]:
         """
         批量获取向量
 
@@ -221,7 +216,7 @@ class EmbeddingCache:
 
         return results, missing_indices
 
-    def put_batch(self, texts: List[str], embeddings: List[List[float]]) -> None:
+    def put_batch(self, texts: list[str], embeddings: list[list[float]]) -> None:
         """
         批量放入缓存
 
@@ -240,7 +235,7 @@ class EmbeddingCache:
             self._hit_count = 0
             self._miss_count = 0
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         获取缓存统计信息
 
@@ -255,11 +250,7 @@ class EmbeddingCache:
         import time
 
         current_time = time.time()
-        expired_count = sum(
-            1
-            for item in self._cache.values()
-            if current_time - item["timestamp"] > self._ttl_seconds
-        )
+        expired_count = sum(1 for item in self._cache.values() if current_time - item["timestamp"] > self._ttl_seconds)
 
         return {
             "cache_size": len(self._cache),
@@ -278,7 +269,7 @@ class EmbeddingProvider(ABC):
     """嵌入提供商抽象基类"""
 
     @abstractmethod
-    async def embed_documents(self, texts: List[str]) -> List[List[float]]:
+    async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """
         为文档列表生成向量嵌入
 
@@ -291,7 +282,7 @@ class EmbeddingProvider(ABC):
         pass
 
     @abstractmethod
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> dict[str, Any]:
         """
         获取模型信息
 
@@ -352,7 +343,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         self._model_lock = threading.RLock()
         self._usage_lock = threading.RLock()
         self._active_requests = 0
-        self._last_used_at: Optional[float] = None
+        self._last_used_at: float | None = None
         self._idle_unload_seconds = max(60, int(idle_unload_seconds or 1800))
         self._idle_check_interval_seconds = min(60, max(10, self._idle_unload_seconds // 3))
         self._shutdown_event = threading.Event()
@@ -370,7 +361,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
 
         try:
             # 尝试导入sentence_transformers
-            self._model_class = importlib.import_module('sentence_transformers').SentenceTransformer
+            self._model_class = importlib.import_module("sentence_transformers").SentenceTransformer
             self.logger.info("✅ sentence-transformers 已安装")
             return True
         except ImportError:
@@ -379,15 +370,9 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             # 如果已经尝试过自动安装，则不再重复尝试
             if self._auto_install_attempted:
                 self.logger.error("❌ 本地嵌入依赖安装失败（非模型加载失败），跳过重复安装")
-                self.logger.error(
-                    "👉 可在 AstrBot 界面手动安装依赖：更多功能 -> 平台日志 -> Pip库"
-                )
-                self.logger.error(
-                    "   Pip库建议输入: torch sentence-transformers"
-                )
-                self.logger.error(
-                    "   终端命令: python -m pip install --upgrade torch \"sentence-transformers>=2.2.0\""
-                )
+                self.logger.error("👉 可在 AstrBot 界面手动安装依赖：更多功能 -> 平台日志 -> Pip库")
+                self.logger.error("   Pip库建议输入: torch sentence-transformers")
+                self.logger.error('   终端命令: python -m pip install --upgrade torch "sentence-transformers>=2.2.0"')
                 return False
 
             self._auto_install_attempted = True
@@ -395,44 +380,31 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             # 自动安装依赖
             self.logger.info("🚀 开始自动安装本地嵌入依赖：torch + sentence-transformers")
             try:
-                subprocess.check_call([
-                    sys.executable, "-m", "pip", "install",
-                    "--upgrade",
-                    "torch",
-                    "sentence-transformers>=2.2.0"
-                ])
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", "--upgrade", "torch", "sentence-transformers>=2.2.0"]
+                )
                 self.logger.info("✅ 本地嵌入依赖安装完成")
 
                 # 重新尝试导入
-                self._model_class = importlib.import_module('sentence_transformers').SentenceTransformer
+                self._model_class = importlib.import_module("sentence_transformers").SentenceTransformer
                 return True
 
             except subprocess.CalledProcessError as e:
                 self.logger.error(f"❌ 本地嵌入依赖安装失败（非模型加载失败）: {e}")
                 self.logger.error(
-                    "请手动安装依赖。终端命令: python -m pip install --upgrade torch \"sentence-transformers>=2.2.0\""
+                    '请手动安装依赖。终端命令: python -m pip install --upgrade torch "sentence-transformers>=2.2.0"'
                 )
-                self.logger.error(
-                    "👉 或在 AstrBot 界面手动安装：更多功能 -> 平台日志 -> Pip库"
-                )
-                self.logger.error(
-                    "   Pip库建议输入: torch sentence-transformers"
-                )
+                self.logger.error("👉 或在 AstrBot 界面手动安装：更多功能 -> 平台日志 -> Pip库")
+                self.logger.error("   Pip库建议输入: torch sentence-transformers")
                 return False
 
     def _load_model(self):
         """懒加载本地模型"""
         if not self._ensure_dependencies():
             self.logger.error("❌ 本地嵌入不可用：依赖缺失或安装失败（非模型加载失败）")
-            self.logger.error(
-                "👉 依赖安装入口：更多功能 -> 平台日志 -> Pip库"
-            )
-            self.logger.error(
-                "   Pip库建议输入: torch sentence-transformers"
-            )
-            self.logger.error(
-                "   终端命令: python -m pip install --upgrade torch \"sentence-transformers>=2.2.0\""
-            )
+            self.logger.error("👉 依赖安装入口：更多功能 -> 平台日志 -> Pip库")
+            self.logger.error("   Pip库建议输入: torch sentence-transformers")
+            self.logger.error('   终端命令: python -m pip install --upgrade torch "sentence-transformers>=2.2.0"')
             return
 
         try:
@@ -450,9 +422,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             if self._model is None:
                 self._load_model()
             if self._model is None:
-                raise RuntimeError(
-                    f"本地嵌入不可用：依赖安装失败或模型加载失败: {self.model_name}"
-                )
+                raise RuntimeError(f"本地嵌入不可用：依赖安装失败或模型加载失败: {self.model_name}")
             self._last_used_at = time.time()
             return self._model
 
@@ -479,15 +449,13 @@ class LocalEmbeddingProvider(EmbeddingProvider):
                         if self._active_requests > 0:
                             continue
                     if self._model is not None:
-                        self.logger.info(
-                            f"本地模型空闲 {int(idle_seconds)} 秒，释放内存: {self.model_name}"
-                        )
+                        self.logger.info(f"本地模型空闲 {int(idle_seconds)} 秒，释放内存: {self.model_name}")
                         self._model = None
                         gc.collect()
             except Exception as e:
                 self.logger.warning(f"本地模型空闲释放线程异常: {e}")
 
-    def embed_documents_sync(self, texts: List[str]) -> List[List[float]]:
+    def embed_documents_sync(self, texts: list[str]) -> list[list[float]]:
         """同步方法：为文档列表生成向量嵌入（带缓存）"""
         if not texts:
             return []
@@ -514,9 +482,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
 
             # 3. 对未命中的文本进行向量化
             missing_texts = [texts[i] for i in missing_indices]
-            self.logger.debug(
-                f"🔄 缓存部分命中，需要向量化: {len(missing_texts)}/{len(texts)}个文本"
-            )
+            self.logger.debug(f"🔄 缓存部分命中，需要向量化: {len(missing_texts)}/{len(texts)}个文本")
 
             # 直接同步调用（本地模型）
             new_embeddings = model.encode(missing_texts, convert_to_numpy=True)
@@ -540,13 +506,13 @@ class LocalEmbeddingProvider(EmbeddingProvider):
                 self._active_requests = max(0, self._active_requests - 1)
                 self._last_used_at = time.time()
 
-    async def embed_documents(self, texts: List[str]) -> List[List[float]]:
+    async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """异步方法：为文档列表生成向量嵌入（保持兼容性）"""
         # 在线程池中执行同步方法
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self.embed_documents_sync, texts)
 
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> dict[str, Any]:
         """获取模型信息"""
         if not self.is_available():
             return {
@@ -572,7 +538,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         """获取提供商类型"""
         return "local"
 
-    def get_cache_stats(self) -> Dict[str, Any]:
+    def get_cache_stats(self) -> dict[str, Any]:
         """获取缓存统计信息"""
         return self._cache.get_stats()
 
@@ -669,9 +635,7 @@ class APIEmbeddingProvider(EmbeddingProvider):
         if current_provider and current_provider is not self.provider:
             self.provider = current_provider
             self._model_info = None
-            self.logger.info(
-                f"[简单记忆回灌] API嵌入提供商已刷新当前实例 provider_id={self.provider_id}"
-            )
+            self.logger.info(f"[简单记忆回灌] API嵌入提供商已刷新当前实例 provider_id={self.provider_id}")
         return self.provider
 
     @staticmethod
@@ -766,12 +730,9 @@ class APIEmbeddingProvider(EmbeddingProvider):
                     http_client=http_client,
                 )
                 if hasattr(provider, "model"):
-                    provider.model = provider_config.get(
-                        "embedding_model", "text-embedding-3-small"
-                    )
+                    provider.model = provider_config.get("embedding_model", "text-embedding-3-small")
                 self.logger.warning(
-                    f"[向量索引] 完成 任务名=重建OpenAI嵌入客户端 "
-                    f"provider_id={self.provider_id} 原因=上游client已关闭"
+                    f"[向量索引] 完成 任务名=重建OpenAI嵌入客户端 provider_id={self.provider_id} 原因=上游client已关闭"
                 )
                 return True
             except Exception as e:
@@ -813,7 +774,7 @@ class APIEmbeddingProvider(EmbeddingProvider):
         except Exception as e:
             raise e
 
-    async def embed_documents(self, texts: List[str]) -> List[List[float]]:
+    async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """异步方法：为文档列表生成向量嵌入（带缓存，批次内去重，自动分批）"""
         if not texts:
             return []
@@ -839,20 +800,14 @@ class APIEmbeddingProvider(EmbeddingProvider):
         missing_texts = [texts[i] for i in missing_indices]
 
         # 4. 批次内去重
-        unique_texts, original_to_unique, unique_to_original = self._deduplicate_texts(
-            missing_texts
-        )
+        unique_texts, original_to_unique, unique_to_original = self._deduplicate_texts(missing_texts)
         len(missing_texts) - len(unique_texts)
 
         # 5. 使用当前批量大小处理去重后的文本
-        unique_embeddings = await self._get_embeddings_with_batch(
-            unique_texts, self.batch_size
-        )
+        unique_embeddings = await self._get_embeddings_with_batch(unique_texts, self.batch_size)
 
         # 6. 将去重后的向量回填到原始位置
-        full_missing_embeddings = self._map_embeddings_back(
-            unique_embeddings, unique_to_original, len(missing_texts)
-        )
+        full_missing_embeddings = self._map_embeddings_back(unique_embeddings, unique_to_original, len(missing_texts))
 
         # 7. 将去重后的向量存入缓存
         cache.put_batch(unique_texts, unique_embeddings)
@@ -868,7 +823,7 @@ class APIEmbeddingProvider(EmbeddingProvider):
 
         return result
 
-    def _deduplicate_texts(self, texts: List[str]) -> tuple:
+    def _deduplicate_texts(self, texts: list[str]) -> tuple:
         """
         文本去重，保持映射关系
 
@@ -902,10 +857,10 @@ class APIEmbeddingProvider(EmbeddingProvider):
 
     def _map_embeddings_back(
         self,
-        unique_embeddings: List[List[float]],
-        unique_to_original: List[List[int]],
+        unique_embeddings: list[list[float]],
+        unique_to_original: list[list[int]],
         original_count: int,
-    ) -> List[List[float]]:
+    ) -> list[list[float]]:
         """
         将去重后的向量回填到原始位置
 
@@ -936,9 +891,9 @@ class APIEmbeddingProvider(EmbeddingProvider):
     async def _get_embeddings_with_retry(
         self,
         provider: Any,
-        texts: List[str],
+        texts: list[str],
         retry_stats: dict | None = None,
-    ) -> List[List[float]]:
+    ) -> list[list[float]]:
         """获取单个批次的向量嵌入，并在限流时进行指数退避重试。
 
         Args:
@@ -960,7 +915,7 @@ class APIEmbeddingProvider(EmbeddingProvider):
                 except Exception:
                     _to = 60
                 return await asyncio.wait_for(provider.get_embeddings(texts), timeout=_to)
-            except asyncio.TimeoutError as exc:
+            except TimeoutError as exc:
                 raise TimeoutError(f"向量请求超时 provider_id={self.provider_id} timeout={_to}s") from exc
             except Exception as exc:
                 if self._is_rate_limit_error(exc) and attempt < 3:
@@ -968,8 +923,7 @@ class APIEmbeddingProvider(EmbeddingProvider):
                     if retry_stats is not None:
                         retry_stats["retry_count"] += 1
                     self.logger.debug(
-                        "批量向量化遇到429限流，等待%s秒后重试 "
-                        "provider_id=%s attempt=%s",
+                        "批量向量化遇到429限流，等待%s秒后重试 provider_id=%s attempt=%s",
                         delay,
                         self.provider_id,
                         attempt + 1,
@@ -988,17 +942,14 @@ class APIEmbeddingProvider(EmbeddingProvider):
         if retry_stats["retry_count"] <= 0:
             return
         self.logger.warning(
-            "[睡眠维护] 任务名=批量向量化完成 provider_id=%s "
-            "重试次数=%s 文本数=%s 耗时毫秒=%s",
+            "[睡眠维护] 任务名=批量向量化完成 provider_id=%s 重试次数=%s 文本数=%s 耗时毫秒=%s",
             self.provider_id,
             retry_stats["retry_count"],
             retry_stats["text_count"],
             int((time.time() - start_time) * 1000),
         )
 
-    async def _get_embeddings_with_batch(
-        self, texts: List[str], batch_size: int
-    ) -> List[List[float]]:
+    async def _get_embeddings_with_batch(self, texts: list[str], batch_size: int) -> list[list[float]]:
         """使用指定批量大小获取向量嵌入，遇到413自动减半并在本次生命周期内持久化。
 
         Args:
@@ -1016,9 +967,7 @@ class APIEmbeddingProvider(EmbeddingProvider):
                 provider = self._prepare_provider_for_request()
                 if batch_size >= len(texts):
                     # 单批次处理，同样走限流重试。
-                    result = await self._get_embeddings_with_retry(
-                        provider, texts, retry_stats
-                    )
+                    result = await self._get_embeddings_with_retry(provider, texts, retry_stats)
                     result = self._expand_aggregated_embedding(result, texts)
                     self._validate_embedding_count(result, texts)
                     self._log_retry_aggregate(retry_stats, start_time)
@@ -1028,12 +977,8 @@ class APIEmbeddingProvider(EmbeddingProvider):
                     batches = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
                     result = []
                     for batch in batches:
-                        batch_embeddings = await self._get_embeddings_with_retry(
-                            provider, batch, retry_stats
-                        )
-                        batch_embeddings = self._expand_aggregated_embedding(
-                            batch_embeddings, batch
-                        )
+                        batch_embeddings = await self._get_embeddings_with_retry(provider, batch, retry_stats)
+                        batch_embeddings = self._expand_aggregated_embedding(batch_embeddings, batch)
                         self._validate_embedding_count(batch_embeddings, batch)
                         result.extend(batch_embeddings)
 
@@ -1043,8 +988,7 @@ class APIEmbeddingProvider(EmbeddingProvider):
                 if self._is_batch_too_large_error(e) and batch_size > 1:
                     new_batch_size = max(1, batch_size // 2)
                     self.logger.warning(
-                        f"批量向量化遇到413错误，batch_size从{batch_size}减半到"
-                        f"{new_batch_size}，本次生命周期内持久生效"
+                        f"批量向量化遇到413错误，batch_size从{batch_size}减半到{new_batch_size}，本次生命周期内持久生效"
                     )
                     batch_size = new_batch_size
                     self.batch_size = new_batch_size  # 持久化到实例，本次生命周期内都使用减半后的值
@@ -1052,8 +996,7 @@ class APIEmbeddingProvider(EmbeddingProvider):
                 elif self._is_closed_client_error(e) and not closed_client_retried:
                     closed_client_retried = True
                     self.logger.warning(
-                        f"[向量索引] 开始 任务名=重试API嵌入请求 "
-                        f"provider_id={self.provider_id} 原因=上游client已关闭"
+                        f"[向量索引] 开始 任务名=重试API嵌入请求 provider_id={self.provider_id} 原因=上游client已关闭"
                     )
                     current_provider = self._refresh_provider_reference()
                     if current_provider is not provider:
@@ -1064,9 +1007,7 @@ class APIEmbeddingProvider(EmbeddingProvider):
                 else:
                     raise
 
-    def _expand_aggregated_embedding(
-        self, embeddings: List[List[float]], texts: List[str]
-    ) -> List[List[float]]:
+    def _expand_aggregated_embedding(self, embeddings: list[list[float]], texts: list[str]) -> list[list[float]]:
         """
         兼容上游对多输入返回单个聚合向量的行为。
 
@@ -1082,20 +1023,11 @@ class APIEmbeddingProvider(EmbeddingProvider):
         return embeddings
 
     @staticmethod
-    def _is_aggregated_embedding_result(
-        embeddings: List[List[float]], texts: List[str]
-    ) -> bool:
+    def _is_aggregated_embedding_result(embeddings: list[list[float]], texts: list[str]) -> bool:
         """判断是否符合“多输入返回单条聚合向量”的结构特征。"""
-        return (
-            len(texts) > 1
-            and len(embeddings) == 1
-            and isinstance(embeddings[0], list)
-            and len(embeddings[0]) > 0
-        )
+        return len(texts) > 1 and len(embeddings) == 1 and isinstance(embeddings[0], list) and len(embeddings[0]) > 0
 
-    def _validate_embedding_count(
-        self, embeddings: List[List[float]], texts: List[str]
-    ) -> None:
+    def _validate_embedding_count(self, embeddings: list[list[float]], texts: list[str]) -> None:
         """校验上游返回数量，避免不完整向量结果写入索引。"""
         if len(embeddings) == len(texts):
             return
@@ -1116,18 +1048,13 @@ class APIEmbeddingProvider(EmbeddingProvider):
             return True
         # 嵌套在 gather 产生的异常组中
         if hasattr(e, "exceptions"):
-            return any(
-                hasattr(sub, "status_code") and sub.status_code == 413
-                for sub in e.exceptions
-            )
+            return any(hasattr(sub, "status_code") and sub.status_code == 413 for sub in e.exceptions)
         # 兜底：检查错误消息中是否包含413或 provider 明确告知的批量上限错误。
         err_msg = str(e)
         if "413" in err_msg and "batch" in err_msg.lower():
             return True
         lowered = err_msg.lower()
-        if "batch size" in lowered and (
-            "should not be larger" in lowered or "batch size is invalid" in lowered
-        ):
+        if "batch size" in lowered and ("should not be larger" in lowered or "batch size is invalid" in lowered):
             return True
         return False
 
@@ -1137,17 +1064,9 @@ class APIEmbeddingProvider(EmbeddingProvider):
         if hasattr(e, "status_code") and e.status_code == 429:
             return True
         if hasattr(e, "exceptions"):
-            return any(
-                APIEmbeddingProvider._is_rate_limit_error(sub)
-                for sub in e.exceptions
-            )
+            return any(APIEmbeddingProvider._is_rate_limit_error(sub) for sub in e.exceptions)
         err_msg = str(e).lower()
-        return (
-            "429" in err_msg
-            or "rate limit" in err_msg
-            or "throttling" in err_msg
-            or "ratequota" in err_msg
-        )
+        return "429" in err_msg or "rate limit" in err_msg or "throttling" in err_msg or "ratequota" in err_msg
 
     @staticmethod
     def _meta_get(meta: Any, key: str, default: Any = None) -> Any:
@@ -1188,7 +1107,7 @@ class APIEmbeddingProvider(EmbeddingProvider):
         text = re.sub(r"_+", "_", text)
         return text.strip("._ ")
 
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> dict[str, Any]:
         """获取模型信息"""
         self._refresh_provider_reference()
         if self._model_info is None:
@@ -1212,7 +1131,7 @@ class APIEmbeddingProvider(EmbeddingProvider):
         """获取提供商类型"""
         return "api"
 
-    def get_cache_stats(self) -> Dict[str, Any]:
+    def get_cache_stats(self) -> dict[str, Any]:
         """获取缓存统计信息"""
         stats = self._cache.get_stats()
         stats["current_batch_size"] = self.batch_size  # 添加当前批量大小信息
@@ -1262,11 +1181,11 @@ class EmbeddingProviderFactory:
 
     async def create_provider(
         self,
-        provider_id: Optional[str] = None,
+        provider_id: str | None = None,
         local_model_name: str = "BAAI/bge-small-zh-v1.5",
         enable_local_embedding: bool = True,
         batch_size: int | None = None,
-        timeout: int | None = None,
+        request_timeout: int | None = None,
     ) -> EmbeddingProvider:
         """
         创建嵌入提供商
@@ -1276,7 +1195,7 @@ class EmbeddingProviderFactory:
             local_model_name: 本地模型名称
             enable_local_embedding: 是否启用本地嵌入模型
             batch_size: 向量请求批次大小
-            timeout: 向量请求超时时间（秒）
+            request_timeout: 向量请求超时时间（秒）
 
         Returns:
             嵌入提供商实例
@@ -1296,23 +1215,19 @@ class EmbeddingProviderFactory:
                     normalized_provider_id,
                     context=self.context,
                     batch_size=batch_size,
-                    timeout=timeout,
+                    timeout=request_timeout,
                 )
                 if await api_provider.check_availability():
                     self.logger.info(f"成功使用API嵌入提供商: {normalized_provider_id}")
                     return api_provider
 
                 if local_allowed:
-                    self.logger.warning(
-                        f"API嵌入提供商不可用，已回退到本地懒加载模型: {normalized_provider_id}"
-                    )
+                    self.logger.warning(f"API嵌入提供商不可用，已回退到本地懒加载模型: {normalized_provider_id}")
                     return LocalEmbeddingProvider(local_model_name)
                 raise Exception(f"API提供商不可用: {normalized_provider_id}")
 
             if local_allowed:
-                self.logger.warning(
-                    f"未找到API嵌入提供商，已回退到本地懒加载模型: {normalized_provider_id}"
-                )
+                self.logger.warning(f"未找到API嵌入提供商，已回退到本地懒加载模型: {normalized_provider_id}")
                 return LocalEmbeddingProvider(local_model_name)
             raise Exception(f"未找到API提供商: {normalized_provider_id}")
 
@@ -1328,7 +1243,7 @@ class EmbeddingProviderFactory:
             "2. 将 'enable_local_embedding' 设置为 True 以使用本地模型。"
         )
 
-    def get_available_providers(self) -> List[Dict[str, Any]]:
+    def get_available_providers(self) -> list[dict[str, Any]]:
         """
         获取所有可用的提供商信息
 

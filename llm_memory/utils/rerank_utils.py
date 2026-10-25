@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 def _read_field(item: Any, name: str) -> Any:
@@ -15,7 +15,7 @@ def _read_field(item: Any, name: str) -> Any:
     return getattr(item, name, None)
 
 
-def _coerce_float(value: Any) -> Optional[float]:
+def _coerce_float(value: Any) -> float | None:
     if value is None:
         return None
     try:
@@ -24,7 +24,7 @@ def _coerce_float(value: Any) -> Optional[float]:
         return None
 
 
-def _coerce_index(value: Any) -> Optional[int]:
+def _coerce_index(value: Any) -> int | None:
     if value is None:
         return None
     try:
@@ -33,7 +33,7 @@ def _coerce_index(value: Any) -> Optional[int]:
         return None
 
 
-def extract_rerank_items(rerank_resp: Any) -> List[Dict[str, Any]]:
+def extract_rerank_items(rerank_resp: Any) -> list[dict[str, Any]]:
     """把上游重排返回统一成 ``[{"index", "id", "score", "text"}]``。
 
     上游 provider 返回 AstrBot 的 ``RerankResult`` 对象（字段为
@@ -60,7 +60,7 @@ def extract_rerank_items(rerank_resp: Any) -> List[Dict[str, Any]]:
     if not isinstance(items, list):
         return []
 
-    normalized: List[Dict[str, Any]] = []
+    normalized: list[dict[str, Any]] = []
     for item in items:
         if item is None:
             continue

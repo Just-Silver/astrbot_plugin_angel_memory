@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from quart import jsonify, request
 
@@ -14,6 +14,7 @@ try:
     from astrbot.api import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger(__name__)
 
 
@@ -21,7 +22,7 @@ class TagsAPI:
     def __init__(self, plugin_context):
         self.plugin_context = plugin_context
 
-    def _get_central_conn(self) -> Optional[sqlite3.Connection]:
+    def _get_central_conn(self) -> sqlite3.Connection | None:
         path_manager = self.plugin_context.get_path_manager()
         db_path = str(path_manager.get_simple_memory_db_path())
         if not os.path.exists(db_path):
@@ -42,7 +43,7 @@ class TagsAPI:
 
         try:
             where_sql = ""
-            params: List[Any] = []
+            params: list[Any] = []
             if keyword.strip():
                 where_sql = "WHERE gt.name LIKE ? ESCAPE '\\'"
                 kw = keyword.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -96,7 +97,7 @@ class TagsAPI:
 
             placeholders = ",".join(["?" for _ in tag_ids])
             scope_clause = ""
-            scope_params: List[Any] = []
+            scope_params: list[Any] = []
             if scope:
                 if scope == "public":
                     scope_clause = "AND mr.memory_scope = ?"
@@ -126,30 +127,34 @@ class TagsAPI:
                 ORDER BY hit_count DESC, mr.strength DESC, mr.created_at DESC
                 LIMIT ?
             """
-            params: List[Any] = [*tag_ids, *scope_params, limit]
+            params: list[Any] = [*tag_ids, *scope_params, limit]
             cur.execute(sql, params)
             rows = cur.fetchall()
             memory_hits = []
             for row in rows:
-                memory_hits.append({
-                    "id": row["id"],
-                    "hit_count": int(row["hit_count"] or 0),
-                    "memory_type": row["memory_type"],
-                    "judgment": row["judgment"],
-                    "reasoning": row["reasoning"],
-                    "strength": row["strength"],
-                    "is_active": bool(row["is_active"]),
-                    "memory_scope": row["memory_scope"],
-                    "created_at": row["created_at"],
-                    "updated_at": row["updated_at"],
-                    "tags": row["tags"],
-                })
+                memory_hits.append(
+                    {
+                        "id": row["id"],
+                        "hit_count": int(row["hit_count"] or 0),
+                        "memory_type": row["memory_type"],
+                        "judgment": row["judgment"],
+                        "reasoning": row["reasoning"],
+                        "strength": row["strength"],
+                        "is_active": bool(row["is_active"]),
+                        "memory_scope": row["memory_scope"],
+                        "created_at": row["created_at"],
+                        "updated_at": row["updated_at"],
+                        "tags": row["tags"],
+                    }
+                )
 
-            return jsonify({
-                "matched_tags": tag_names,
-                "matched_tag_ids": tag_ids,
-                "memory_hits": memory_hits,
-            })
+            return jsonify(
+                {
+                    "matched_tags": tag_names,
+                    "matched_tag_ids": tag_ids,
+                    "memory_hits": memory_hits,
+                }
+            )
         except Exception as e:
             return jsonify({"matched_tags": [], "matched_tag_ids": [], "memory_hits": [], "error": str(e)}), 500
         finally:

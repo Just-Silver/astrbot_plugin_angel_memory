@@ -1,0 +1,68 @@
+name: CI
+
+# 质量门禁。release.yml 通过 workflow_call 复用 `verify` 这个 job，
+# 因此发布前跑的是完全相同的一组检查，且不会重复触发本 workflow。
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
+
+# group 带 github.workflow：被 release.yml 复用时该值是 "Release"，
+# 与被调用时的 "CI" 不同，避免 cancel-in-progress 把发布运行取消掉。
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_call' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: 检查与测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-ci.txt
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-ci.txt
+
+      - name: 静态检查
+        run: |
+          ruff check --output-format=github .
+          ruff format --check .
+
+      - name: 字节码编译
+        run: python -m compileall -q core llm_memory tools web_api debug_tool main.py
+
+      - name: 单元测试
+        run: python -m pytest -q
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+
+      - name: 安装前端依赖
+        working-directory: webui
+        run: npm ci --no-audit --no-fund
+
+      - name: 前端类型检查
+        working-directory: webui
+        run: npx vue-tsc --noEmit
+
+      - name: 前端构建
+        working-directory: webui
+        run: npm run build

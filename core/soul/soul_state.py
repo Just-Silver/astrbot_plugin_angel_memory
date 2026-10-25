@@ -1,12 +1,13 @@
 import math
 import threading
-from typing import Dict, List
 
 try:
     from astrbot.api import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger(__name__)
+
 
 class SoulState:
     """
@@ -29,7 +30,7 @@ class SoulState:
     REGRESSION_FACTOR = 0.1  # 自然回归系数，决定向mid回归的力度
 
     # 强度参数
-    REFLECT_STRENGTH = 1.0   # 主动反思强度
+    REFLECT_STRENGTH = 1.0  # 主动反思强度
     RESONATE_STRENGTH = 0.3  # 被动共鸣强度
 
     # 能量范围
@@ -41,48 +42,28 @@ class SoulState:
 
         注意：状态仅在内存中维护，重启插件后会重置为中庸状态(0.0)
         """
-        self._lock = threading.RLock() # 线程锁
+        self._lock = threading.RLock()  # 线程锁
 
         # 能量池：累积历史刺激，初始为0（中庸），范围软限制 [-20, 20]
         self.energy = {
-            "RecallDepth":      0.0, # 回忆量倾向：决定检索量 (RAG Top_K)
-            "ImpressionDepth":  0.0, # 记住量倾向：决定记忆生成数量 (Memory Generation Limit)
-            "ExpressionDesire": 0.0, # 发言长度倾向：决定发言长度 (Max Tokens)
-            "Creativity":       0.0  # 思维发散倾向：决定温度 (Temperature)
+            "RecallDepth": 0.0,  # 回忆量倾向：决定检索量 (RAG Top_K)
+            "ImpressionDepth": 0.0,  # 记住量倾向：决定记忆生成数量 (Memory Generation Limit)
+            "ExpressionDesire": 0.0,  # 发言长度倾向：决定发言长度 (Max Tokens)
+            "Creativity": 0.0,  # 思维发散倾向：决定温度 (Temperature)
         }
 
         # 从配置中读取回归值，min/max值在此处硬编码以符合群聊场景
         self.config = {
-            "RecallDepth": {
-                "min": 1,
-                "mid": getattr(config, "soul_recall_depth_mid", 7),
-                "max": 20
-            },
-            "ImpressionDepth": {
-                "min": 1,
-                "mid": getattr(config, "soul_impression_depth_mid", 3),
-                "max": 10
-            },
-            "ExpressionDesire": {
-                "min": 0.0,
-                "mid": getattr(config, "soul_expression_desire_mid", 0.5),
-                "max": 1.0
-            },
-            "Creativity": {
-                "min": 0.0,
-                "mid": getattr(config, "soul_creativity_mid", 0.7),
-                "max": 1.0
-            }
+            "RecallDepth": {"min": 1, "mid": getattr(config, "soul_recall_depth_mid", 7), "max": 20},
+            "ImpressionDepth": {"min": 1, "mid": getattr(config, "soul_impression_depth_mid", 3), "max": 10},
+            "ExpressionDesire": {"min": 0.0, "mid": getattr(config, "soul_expression_desire_mid", 0.5), "max": 1.0},
+            "Creativity": {"min": 0.0, "mid": getattr(config, "soul_creativity_mid", 0.7), "max": 1.0},
         }
 
     # ===== 核心算法模块（可独立测试） =====
 
     def _calculate_elastic_delta(
-        self,
-        current_energy: float,
-        direction: int,
-        mid: float,
-        base_strength: float
+        self, current_energy: float, direction: int, mid: float, base_strength: float
     ) -> float:
         """
         计算弹性变动量（核心算法，可独立测试）
@@ -120,7 +101,7 @@ class SoulState:
 
         return total_delta
 
-    def _generate_resonate_code(self, snapshots: List[Dict[str, float]]) -> str:
+    def _generate_resonate_code(self, snapshots: list[dict[str, float]]) -> str:
         """
         从多个记忆快照生成4位共鸣代码（核心算法，可独立测试）
 
@@ -155,7 +136,7 @@ class SoulState:
                 current_value = self.energy[dim]
                 avg_value = avg_energy[dim]
                 # 平均值 > 当前值 → 倾向增加 → 1
-                code += '1' if avg_value > current_value else '0'
+                code += "1" if avg_value > current_value else "0"
 
         return code
 
@@ -180,12 +161,12 @@ class SoulState:
             k = 0.3  # 敏感度系数，决定了能量变化的响应速度
 
             if E >= 0:
-                val = cfg['mid'] + (cfg['max'] - cfg['mid']) * math.tanh(k * E)
+                val = cfg["mid"] + (cfg["max"] - cfg["mid"]) * math.tanh(k * E)
             else:
-                val = cfg['mid'] + (cfg['mid'] - cfg['min']) * math.tanh(k * E)
+                val = cfg["mid"] + (cfg["mid"] - cfg["min"]) * math.tanh(k * E)
 
             # 强制截断在 min-max 范围内（虽然 tanh 不会越界，但浮点运算可能微小溢出）
-            val = max(cfg['min'], min(cfg['max'], val))
+            val = max(cfg["min"], min(cfg["max"], val))
 
         # 对于整数类型的参数（如Top_K），进行取整
         if dimension in ["RecallDepth", "ImpressionDepth"]:
@@ -211,7 +192,7 @@ class SoulState:
             ValueError: 如果code格式不正确
         """
         # 1. 验证code格式
-        if len(code) != 4 or not all(c in '01' for c in code):
+        if len(code) != 4 or not all(c in "01" for c in code):
             raise ValueError(f"Invalid code: {code}, must be 4-bit binary string like '1011'")
 
         # 2. 根据mode确定强度
@@ -228,33 +209,27 @@ class SoulState:
             changes = []
             for i, dim in enumerate(self.DIMENSIONS):
                 # 解析方向：1=增加，0=减少
-                direction = +1 if code[i] == '1' else -1
+                direction = +1 if code[i] == "1" else -1
 
                 # 获取配置
-                mid = self.config[dim]['mid']
+                mid = self.config[dim]["mid"]
                 current_energy = self.energy[dim]
 
                 # 计算弹性变动量
-                delta = self._calculate_elastic_delta(
-                    current_energy,
-                    direction,
-                    mid,
-                    base_strength
-                )
+                delta = self._calculate_elastic_delta(current_energy, direction, mid, base_strength)
 
                 # 应用变动
                 self.energy[dim] += delta
 
                 # 软限制
-                self.energy[dim] = max(-self.ENERGY_SOFT_LIMIT,
-                                      min(self.ENERGY_SOFT_LIMIT, self.energy[dim]))
+                self.energy[dim] = max(-self.ENERGY_SOFT_LIMIT, min(self.ENERGY_SOFT_LIMIT, self.energy[dim]))
 
                 changes.append(f"{dim}: {current_energy:.2f}->{self.energy[dim]:.2f} (Δ{delta:+.2f})")
 
             mode_emoji = "🧘" if mode == "reflect" else "🎼"
             logger.debug(f"{mode_emoji} Soul Adjust [{mode}] ({code}): {', '.join(changes)}")
 
-    def resonate(self, snapshots: List[Dict[str, float]]):
+    def resonate(self, snapshots: list[dict[str, float]]):
         """
         共鸣机制：多个旧记忆状态影响当前状态（新接口）
 
@@ -302,7 +277,7 @@ class SoulState:
 
             # 1. 自然衰减 (回归中庸)
             if decay > 0:
-                self.energy[dimension] *= (1.0 - decay)
+                self.energy[dimension] *= 1.0 - decay
                 if abs(self.energy[dimension]) < 0.1:
                     self.energy[dimension] = 0.0
 
@@ -310,12 +285,14 @@ class SoulState:
             self.energy[dimension] += delta
 
             # 3. 软限制
-            self.energy[dimension] = max(-self.ENERGY_SOFT_LIMIT,
-                                        min(self.ENERGY_SOFT_LIMIT, self.energy[dimension]))
+            self.energy[dimension] = max(-self.ENERGY_SOFT_LIMIT, min(self.ENERGY_SOFT_LIMIT, self.energy[dimension]))
 
             new_val = self.energy[dimension]
-            logger.debug(f"🔋 Soul Update [{dimension}]: {original_val:.2f} -> {new_val:.2f} (Delta={delta}, Decay={decay})")
-    def get_snapshot(self) -> Dict[str, float]:
+            logger.debug(
+                f"🔋 Soul Update [{dimension}]: {original_val:.2f} -> {new_val:.2f} (Delta={delta}, Decay={decay})"
+            )
+
+    def get_snapshot(self) -> dict[str, float]:
         """获取当前状态快照（用于存入新记忆）"""
         with self._lock:
             return self.energy.copy()
@@ -323,10 +300,10 @@ class SoulState:
     def get_state_description(self) -> str:
         """获取当前状态的文本描述（用于调试或Prompt注入）"""
         with self._lock:
-            v_recall = self.get_value('RecallDepth')
-            v_impress = self.get_value('ImpressionDepth')
-            v_express = self.get_value('ExpressionDesire')
-            v_create = self.get_value('Creativity')
+            v_recall = self.get_value("RecallDepth")
+            v_impress = self.get_value("ImpressionDepth")
+            v_express = self.get_value("ExpressionDesire")
+            v_create = self.get_value("Creativity")
 
         desc = []
         desc.append(f"🧠 回忆倾向: {v_recall}条")

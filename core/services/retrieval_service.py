@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Optional
+from typing import Any
 
 from astrbot.api.event import AstrMessageEvent
 
@@ -12,9 +12,7 @@ class DeepMindRetrievalService:
     def __init__(self, deepmind):
         self.deepmind = deepmind
 
-    def parse_memory_context(
-        self, event: AstrMessageEvent
-    ) -> Optional[Dict[str, Any]]:
+    def parse_memory_context(self, event: AstrMessageEvent) -> dict[str, Any] | None:
         if not hasattr(event, "angelmemory_context"):
             return None
 
@@ -40,14 +38,12 @@ class DeepMindRetrievalService:
 
     async def retrieve_memories_and_notes(
         self, event: AstrMessageEvent, query: str, precompute_vectors: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         deepmind = self.deepmind
 
         if precompute_vectors:
-            memory_query, memory_vector = (
-                await deepmind.query_processor.process_query_for_memory_with_vector(
-                    query, event
-                )
+            memory_query, memory_vector = await deepmind.query_processor.process_query_for_memory_with_vector(
+                query, event
             )
         else:
             memory_query = deepmind.query_processor.process_query_for_memory(query, event)
@@ -117,9 +113,7 @@ class DeepMindRetrievalService:
         if long_term_memories:
             memory_sql_manager = deepmind.plugin_context.get_component("memory_sql_manager")
             if memory_sql_manager:
-                memory_id_mapping = memory_sql_manager.build_id_mapping(
-                    [memory.id for memory in long_term_memories]
-                )
+                memory_id_mapping = memory_sql_manager.build_id_mapping([memory.id for memory in long_term_memories])
             else:
                 memory_id_mapping = MemoryIDResolver.generate_id_mapping(
                     [memory.to_dict() for memory in long_term_memories], "id"

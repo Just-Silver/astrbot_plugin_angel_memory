@@ -5,10 +5,10 @@ InitializationManager - 初始化状态管理器
 与PluginContext协作，PluginContext负责资源管理，InitializationManager负责状态管理。
 """
 
-from enum import Enum
-from threading import RLock, Event
-import time
 import asyncio
+import time
+from enum import Enum
+from threading import Event, RLock
 
 try:
     from astrbot.api import logger
@@ -45,9 +45,7 @@ class InitializationManager:
         self.failed_reason = ""
         self.failed_at = None
         self.logger = logger
-        self.logger.debug(
-            "InitializationManager初始化完成 - 专注于状态管理和提供商检测"
-        )
+        self.logger.debug("InitializationManager初始化完成 - 专注于状态管理和提供商检测")
 
     def wait_for_providers_and_initialize(self, check_interval=10):
         """
@@ -95,9 +93,7 @@ class InitializationManager:
                         embedding_ids = [p.meta().id for p in embedding_providers]
                         provider_info.append(f"嵌入: {', '.join(embedding_ids)}")
 
-                    self.logger.info(
-                        f"✅ 检测到提供商: {' | '.join(provider_info)}，开始初始化"
-                    )
+                    self.logger.info(f"✅ 检测到提供商: {' | '.join(provider_info)}，开始初始化")
                     self.transition_to(InitializationState.INITIALIZING)
                     return True
                 else:
@@ -150,9 +146,7 @@ class InitializationManager:
                         embedding_ids = [p.meta().id for p in embedding_providers]
                         provider_info.append(f"嵌入: {', '.join(embedding_ids)}")
 
-                    self.logger.info(
-                        f"✅ 检测到提供商: {' | '.join(provider_info)}，开始初始化"
-                    )
+                    self.logger.info(f"✅ 检测到提供商: {' | '.join(provider_info)}，开始初始化")
                     self.transition_to(InitializationState.INITIALIZING)
                     return True
 
@@ -197,12 +191,12 @@ class InitializationManager:
             self.logger.warning(f"⏰ 系统等待超时：{timeout}秒")
         return result
 
-    async def wait_until_ready_async(self, timeout=None):
+    async def wait_until_ready_async(self, wait_timeout=None):
         """
         异步等待系统准备就绪（不会阻塞事件循环）
 
         Args:
-            timeout: 超时时间（秒），None表示无限等待
+            wait_timeout: 超时时间（秒），None表示无限等待
 
         Returns:
             bool: True=准备就绪, False=超时
@@ -219,8 +213,8 @@ class InitializationManager:
                 self.logger.warning("系统处于 FAILED 状态，异步等待提前结束")
                 return False
 
-            if timeout is not None and (time.time() - start_time) >= timeout:
-                self.logger.warning(f"⏰ 系统等待超时：{timeout}秒（异步）")
+            if wait_timeout is not None and (time.time() - start_time) >= wait_timeout:
+                self.logger.warning(f"⏰ 系统等待超时：{wait_timeout}秒（异步）")
                 return False
 
             await asyncio.sleep(interval)

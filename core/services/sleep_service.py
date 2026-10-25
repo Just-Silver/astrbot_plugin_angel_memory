@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
 from ...llm_memory.models.data_models import BaseMemory
 from ...llm_memory.service.memory_retirement_reviewer import (
@@ -43,21 +44,17 @@ class DeepMindSleepService:
 
             cleanup_completed_at = time.time()
             deepmind.logger.info("[睡眠] 阶段=后置维护 开始")
-            await self.maintenance_service.run_post_consolidate(
-                cleanup_completed_at=cleanup_completed_at
-            )
+            await self.maintenance_service.run_post_consolidate(cleanup_completed_at=cleanup_completed_at)
             deepmind.logger.info("[睡眠] 阶段=后置维护 完成")
 
             await self._record_sleep_trace(recycle_result, start_time)
             return True
         except Exception as e:
             elapsed_time = time.time() - start_time
-            deepmind.logger.error(
-                f"记忆巩固失败（耗时 {elapsed_time:.2f} 秒）: {e}", exc_info=True
-            )
+            deepmind.logger.error(f"记忆巩固失败（耗时 {elapsed_time:.2f} 秒）: {e}", exc_info=True)
             return False
 
-    async def _recycle_memories(self) -> Dict[str, Any]:
+    async def _recycle_memories(self) -> dict[str, Any]:
         """衰减 -> 取候选 -> 审查 -> 应用裁决。审查失败时整批跳过。"""
         deepmind = self.deepmind
         await deepmind.memory_system.decay_tier0_memories()
@@ -74,8 +71,7 @@ class DeepMindSleepService:
         except RetirementReviewError as e:
             cost_ms = int((time.time() - review_start) * 1000)
             deepmind.logger.error(
-                f"[淘汰审查] 失败 候选数={len(candidates)} "
-                f"本次整批跳过，不删除任何记忆 耗时毫秒={cost_ms} 异常={e}"
+                f"[淘汰审查] 失败 候选数={len(candidates)} 本次整批跳过，不删除任何记忆 耗时毫秒={cost_ms} 异常={e}"
             )
             return {
                 "candidates": len(candidates),
@@ -90,12 +86,8 @@ class DeepMindSleepService:
                 "error": str(e),
             }
 
-        delete_ids, keep_ids, undecided = self._split_decisions(
-            candidates, outcome.decisions
-        )
-        result = await deepmind.memory_system.apply_retirement_decisions(
-            delete_ids, keep_ids
-        )
+        delete_ids, keep_ids, undecided = self._split_decisions(candidates, outcome.decisions)
+        result = await deepmind.memory_system.apply_retirement_decisions(delete_ids, keep_ids)
         cost_ms = int((time.time() - review_start) * 1000)
         deepmind.logger.info(
             f"[淘汰审查] 完成 候选数={len(candidates)} 判删={len(delete_ids)} "
@@ -117,12 +109,12 @@ class DeepMindSleepService:
     @staticmethod
     def _split_decisions(
         candidates: Sequence[BaseMemory],
-        decisions: Dict[str, str],
-    ) -> Tuple[List[str], List[str], List[str]]:
+        decisions: dict[str, str],
+    ) -> tuple[list[str], list[str], list[str]]:
         """按裁决表拆分候选：删除、永久化、悬而不决。"""
-        delete_ids: List[str] = []
-        keep_ids: List[str] = []
-        undecided: List[str] = []
+        delete_ids: list[str] = []
+        keep_ids: list[str] = []
+        undecided: list[str] = []
         for memory in candidates:
             memory_id = str(getattr(memory, "id", "") or "")
             if not memory_id:
@@ -137,7 +129,7 @@ class DeepMindSleepService:
         return delete_ids, keep_ids, undecided
 
     @staticmethod
-    def _empty_recycle_result() -> Dict[str, Any]:
+    def _empty_recycle_result() -> dict[str, Any]:
         return {
             "candidates": 0,
             "deleted": 0,
@@ -153,7 +145,7 @@ class DeepMindSleepService:
 
     async def _record_sleep_trace(
         self,
-        recycle_result: Dict[str, Any],
+        recycle_result: dict[str, Any],
         start_time: float,
     ) -> None:
         """把本轮睡眠的审查过程追加到持久化追踪文件。"""

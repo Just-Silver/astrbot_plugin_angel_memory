@@ -6,7 +6,7 @@
 """
 
 import threading
-from typing import Dict, List, Optional, Tuple
+
 from .sqlite_database_manager import SQLiteDatabaseManager
 
 
@@ -78,8 +78,7 @@ class FileIndexManager(SQLiteDatabaseManager):
             return False
 
         self.logger.info(
-            "[文件索引] 版本不匹配，开始重建 "
-            f"旧版本={current_version or '空'} 新版本={self.SCHEMA_VERSION}"
+            f"[文件索引] 版本不匹配，开始重建 旧版本={current_version or '空'} 新版本={self.SCHEMA_VERSION}"
         )
         self._execute_single(
             f"DELETE FROM {table_name}",
@@ -156,13 +155,9 @@ class FileIndexManager(SQLiteDatabaseManager):
                         )
                         # 更新内存缓存
                         self._path_cache[relative_path] = (file_id, timestamp)
-                        self.logger.debug(
-                            f"文件时间戳已更新: {relative_path} -> {timestamp}"
-                        )
+                        self.logger.debug(f"文件时间戳已更新: {relative_path} -> {timestamp}")
                     except Exception as e:
-                        self.logger.error(
-                            f"更新文件时间戳失败: {relative_path}, 错误: {e}"
-                        )
+                        self.logger.error(f"更新文件时间戳失败: {relative_path}, 错误: {e}")
 
                 return file_id
 
@@ -216,7 +211,7 @@ class FileIndexManager(SQLiteDatabaseManager):
             self.logger.error(f"获取或创建文件ID失败: {relative_path}, 错误: {e}")
             raise
 
-    def get_file_path(self, file_id: int) -> Optional[str]:
+    def get_file_path(self, file_id: int) -> str | None:
         """
         根据文件ID获取文件路径（优先使用内存缓存）
 
@@ -279,7 +274,7 @@ class FileIndexManager(SQLiteDatabaseManager):
             self.logger.error(f"更新文件时间戳失败 (ID: {file_id}): {e}")
             return False
 
-    def get_all_files(self) -> List[Dict]:
+    def get_all_files(self) -> list[dict]:
         """
         获取所有文件索引
 
@@ -294,9 +289,7 @@ class FileIndexManager(SQLiteDatabaseManager):
 
             results = []
             for row in cursor.fetchall():
-                results.append(
-                    {"id": row[0], "relative_path": row[1], "file_timestamp": row[2]}
-                )
+                results.append({"id": row[0], "relative_path": row[1], "file_timestamp": row[2]})
             return results
         except Exception as e:
             self.logger.error(f"获取所有文件索引失败: {e}")
@@ -337,9 +330,7 @@ class FileIndexManager(SQLiteDatabaseManager):
                 with self._cache_lock:
                     self._id_cache.pop(file_id, None)
                     self._path_cache.pop(relative_path, None)
-                    self.logger.debug(
-                        f"已清理缓存: file_id={file_id}, path={relative_path}"
-                    )
+                    self.logger.debug(f"已清理缓存: file_id={file_id}, path={relative_path}")
 
             return success
 
@@ -347,9 +338,7 @@ class FileIndexManager(SQLiteDatabaseManager):
             self.logger.error(f"删除文件索引失败 (ID: {file_id}): {e}")
             return False
 
-    def get_changed_files(
-        self, current_files: Dict[str, int]
-    ) -> Tuple[List[int], List[str]]:
+    def get_changed_files(self, current_files: dict[str, int]) -> tuple[list[int], list[str]]:
         """
         比较当前文件列表与数据库中的文件，找出变更的文件
 
@@ -361,9 +350,7 @@ class FileIndexManager(SQLiteDatabaseManager):
         """
         try:
             table_name = self._get_table_name()
-            cursor = self._execute_query(
-                f"SELECT id, relative_path, file_timestamp FROM {table_name}"
-            )
+            cursor = self._execute_query(f"SELECT id, relative_path, file_timestamp FROM {table_name}")
 
             db_files = {}
             to_delete = []
@@ -381,24 +368,17 @@ class FileIndexManager(SQLiteDatabaseManager):
 
             # 找出需要更新或新增的文件
             for rel_path, timestamp in current_files.items():
-                if (
-                    rel_path not in db_files
-                    or db_files[rel_path]["timestamp"] < timestamp
-                ):
+                if rel_path not in db_files or db_files[rel_path]["timestamp"] < timestamp:
                     to_update.append(rel_path)
 
-            self.logger.debug(
-                f"变更检测完成: 删除 {len(to_delete)} 个, 更新 {len(to_update)} 个"
-            )
+            self.logger.debug(f"变更检测完成: 删除 {len(to_delete)} 个, 更新 {len(to_update)} 个")
             return to_delete, to_update
 
         except Exception as e:
             self.logger.error(f"获取变更文件失败: {e}")
             return [], []
 
-    def batch_get_or_create_file_ids(
-        self, file_paths: List[str], timestamps: List[int] = None
-    ) -> List[int]:
+    def batch_get_or_create_file_ids(self, file_paths: list[str], timestamps: list[int] = None) -> list[int]:
         """
         批量获取或创建文件ID（领导专用）
 
@@ -419,18 +399,12 @@ class FileIndexManager(SQLiteDatabaseManager):
 
         try:
             # 使用基础类的批量方法
-            file_ids = self._batch_get_or_create_ids(
-                file_paths, "relative_path", caller="领导批量分配file_id"
-            )
+            file_ids = self._batch_get_or_create_ids(file_paths, "relative_path", caller="领导批量分配file_id")
 
             # 如果有非零时间戳，需要更新
             if any(ts > 0 for ts in timestamps):
                 table_name = self._get_table_name()
-                update_params = [
-                    (ts, file_id, ts)
-                    for ts, file_id in zip(timestamps, file_ids)
-                    if ts > 0
-                ]
+                update_params = [(ts, file_id, ts) for ts, file_id in zip(timestamps, file_ids) if ts > 0]
 
                 if update_params:
                     self._batch_execute(
@@ -444,7 +418,7 @@ class FileIndexManager(SQLiteDatabaseManager):
             self.logger.error(f"批量获取或创建文件ID失败: {e}")
             raise
 
-    def batch_get_file_paths(self, file_ids: List[int]) -> List[str]:
+    def batch_get_file_paths(self, file_ids: list[int]) -> list[str]:
         """
         批量根据文件ID获取文件路径
 
@@ -456,7 +430,7 @@ class FileIndexManager(SQLiteDatabaseManager):
         """
         return self._batch_get_names_by_ids(file_ids, "relative_path")
 
-    def get_file_statistics(self) -> Dict[str, any]:
+    def get_file_statistics(self) -> dict[str, any]:
         """
         获取文件统计信息（包含缓存统计）
 
@@ -474,9 +448,7 @@ class FileIndexManager(SQLiteDatabaseManager):
             return {
                 "total_files": total_count,
                 "cached_files": cached_files,
-                "cache_hit_ratio": cached_files / total_count
-                if total_count > 0
-                else 0.0,
+                "cache_hit_ratio": cached_files / total_count if total_count > 0 else 0.0,
                 "table_name": table_name,
             }
         except Exception as e:
@@ -488,7 +460,7 @@ class FileIndexManager(SQLiteDatabaseManager):
                 "table_name": self._get_table_name(),
             }
 
-    def _batch_execute(self, query: str, params_list: List[Tuple]) -> None:
+    def _batch_execute(self, query: str, params_list: list[tuple]) -> None:
         """
         批量执行SQL操作（带提交）
 

@@ -137,6 +137,8 @@ LLM响应 → DeepMind.async_analyze_and_update_memory()
 - **向量模式**：语义检索（向量相似度 + 可选rerank_provider重排）+ 链式召回（实体优先+类型分组）
 - **Simple模式**：FTS5（jieba 预分词）检索 + rank归一融合 + 阈值过滤
 - **重排契约**：上游返回 `RerankResult`（`relevance_score`），接入见 [`docs/重排接入与分数契约.md`](docs/重排接入与分数契约.md)
+- **上下文契约**：天使之心注入的 `angelheart_context` 字段与切分语义见 [`docs/天使之心上下文契约.md`](docs/天使之心上下文契约.md)
+- **本次修复验收**：反思契约修复的部署核对与验收步骤见 [`docs/反思契约修复验收流程.md`](docs/反思契约修复验收流程.md)
 
 ### 嵌入层
 - **本地模型**：SentenceTransformers（BAAI/bge-small-zh-v1.5）
@@ -276,6 +278,12 @@ LLM响应 → DeepMind.async_analyze_and_update_memory()
 ### 版本号维护
 - 任何影响运行行为、配置、依赖或接口语义的变更，提交前必须同步更新 `metadata.yaml` 的 `version`。
 - 版本号至少递增最末位，确保上游可识别到新版本并触发更新。
+
+### 分支规范
+- 任何修复、功能、重构都**必须先开新分支**，禁止直接在 `master` 上开发或提交。
+- 分支命名：`fix/<简短英文描述>`、`feat/<简短英文描述>`、`refactor/<简短英文描述>`。
+- 开发与自测在功能分支完成；**验证通过后才合并回 `master`**，未验证不得直接推主分支。
+- 分支合并后及时删除，避免长期分叉。
 
 ### 提交信息规范
 - 采用约定式提交（Conventional Commits），推荐格式：`type(scope): 简要中文描述`。

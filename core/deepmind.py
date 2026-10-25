@@ -333,7 +333,7 @@ class DeepMind:
 
         session_id = self._get_session_id(event)
 
-        # 1. 从 event.angelheart_context 中获取对话历史（仅保留未处理消息）
+        # 1. 从 event.angelheart_context 中获取对话历史（仅保留当前连续块）
         chat_records: List[Dict[str, Any]] = []
         unprocessed_chat_records: List[Dict[str, Any]] = []
         secretary_decision = {}
@@ -343,11 +343,11 @@ class DeepMind:
                 chat_records = angelheart_data.get("chat_records", []) or []
                 if not isinstance(chat_records, list):
                     chat_records = []
-                unprocessed_chat_records = [
-                    msg
-                    for msg in chat_records
-                    if isinstance(msg, dict) and msg.get("is_processed", True) is False
-                ]
+                if chat_records:
+                    unprocessed_chat_records, _ = self._split_chat_snapshot(
+                        chat_records,
+                        angelheart_data.get("historical_count"),
+                    )
                 secretary_decision = angelheart_data.get("secretary_decision", {}) or {}
             except (json.JSONDecodeError, KeyError, TypeError):
                 self.logger.error(f"为会话 {session_id} 解析 angelheart_context 失败")
@@ -815,11 +815,81 @@ class DeepMind:
             for sid in session_ids:
                 await self._trigger_reflection_if_needed(sid, reason="idle")
 
+    def _split_chat_snapshot(
+        self,
+        chat_records: List[Dict[str, Any]],
+        historical_count: Any = None,
+    ) -> tuple[List[Dict[str, Any]], str]:
+        """
+        按生产方声明的边界把快照切成 (当前连续块, 来源标记)。
+
+        快照是“当前连续块 + 历史前缀”的全量内容，不是增量；本轮增量在 event 与
+        response 里，这里只负责取出供画像与 query 使用的当前批次。
+
+        三级降级：
+        1. 有 historical_count（天使之心 2.1+ 显式声明）：直接按声明切分。
+        2. 有 is_processed（旧契约）：按旧语义筛选，保持既有行为。
+        3. 两者都没有（天使之心 2.x）：退回最后一条 assistant 之后切分。
+        """
+        records = [msg for msg in chat_records if isinstance(msg, dict)]
+        if not records:
+            return [], "empty"
+
+        # 1. 显式声明优先：生产方知道自己的压缩策略，消费方不该猜。
+        if historical_count is not None:
+            try:
+                boundary = int(historical_count)
+            except (TypeError, ValueError):
+                boundary = -1
+            if 0 <= boundary <= len(records):
+                batch = records[boundary:]
+                if batch:
+                    return batch, "explicit"
+                self.logger.warning(
+                    f"[反思调度] 快照边界切出空批次 historical_count={boundary} "
+                    f"total={len(records)}，退回角色兜底"
+                )
+            else:
+                self.logger.warning(
+                    f"[反思调度] 快照边界非法 historical_count={historical_count} "
+                    f"total={len(records)}，退回角色兜底"
+                )
+
+        # 2. 旧契约：有 is_processed 就按旧语义走，不改既有行为。
+        has_processed_flag = any("is_processed" in msg for msg in records)
+        if has_processed_flag:
+            processed = [
+                msg for msg in records if bool(msg.get("is_processed", False))
+            ]
+            latest_user_unprocessed = None
+            for msg in reversed(records):
+                if (
+                    str(msg.get("role", "")).strip() == "user"
+                    and msg.get("is_processed", True) is False
+                ):
+                    latest_user_unprocessed = msg
+                    break
+            combined = list(processed)
+            if latest_user_unprocessed is not None:
+                combined.append(latest_user_unprocessed)
+            return combined, "legacy_flag"
+
+        # 3. 无任何标记：当前连续块 = 最后一条 assistant 之后。
+        #    快照生成于主模型回复之前，所以这块正是本轮用户消息及其上下文。
+        for index in range(len(records) - 1, -1, -1):
+            if str(records[index].get("role", "")).strip() == "assistant":
+                batch = records[index + 1 :]
+                if batch:
+                    return batch, "role_fallback"
+                break
+        # 切空（快照以 assistant 结尾）或整块无 assistant：保留整块，宁可多吃不可丢弃。
+        return records, "role_fallback_full"
+
     def _build_reflection_records_for_turn(self, event: AstrMessageEvent, response) -> List[Dict[str, Any]]:
         """
         生成“本轮新增”的反思聊天记录。
         分支：
-        - AngelHeart：取已处理历史 + 最新一条未处理用户消息。
+        - AngelHeart：按快照边界取当前连续块。
         - 原生：仅当前轮 用户 -> 助理。
         """
         now_ts = time.time()
@@ -835,33 +905,22 @@ class DeepMind:
                 angelheart_data = json.loads(event.angelheart_context)
                 chat_records = angelheart_data.get("chat_records", []) or []
                 if isinstance(chat_records, list) and chat_records:
-                    processed = [
-                        msg
-                        for msg in chat_records
-                        if isinstance(msg, dict) and bool(msg.get("is_processed", False))
-                    ]
-                    latest_user_unprocessed = None
-                    for msg in reversed(chat_records):
-                        if (
-                            isinstance(msg, dict)
-                            and str(msg.get("role", "")).strip() == "user"
-                            and msg.get("is_processed", True) is False
-                        ):
-                            latest_user_unprocessed = msg
-                            break
-                    combined = list(processed)
-                    if latest_user_unprocessed is not None:
-                        combined.append(latest_user_unprocessed)
-                    self.logger.debug(
-                        f"[反思调度] 使用天使之心聊天记录: processed={len(processed)} "
-                        f"+ latest_unprocessed_user={1 if latest_user_unprocessed else 0}"
+                    batch, source = self._split_chat_snapshot(
+                        chat_records,
+                        angelheart_data.get("historical_count"),
                     )
-                    return self._dedupe_and_sort_chat_records(
-                        combined,
-                        source="天使之心聊天记录",
-                    )
+                    if batch:
+                        self.logger.debug(
+                            f"[反思调度] 使用天使之心聊天记录: "
+                            f"来源={source} batch={len(batch)}/total={len(chat_records)}"
+                        )
+                        return self._dedupe_and_sort_chat_records(
+                            batch,
+                            source="天使之心聊天记录",
+                        )
             except (json.JSONDecodeError, TypeError, KeyError) as e:
                 self.logger.warning(f"反思聊天记录解析失败，降级到原生分支: {e}")
+
 
         # 分支2：原生消息（每轮仅用户输入）
         user_text = self._extract_message_text(event) or ""
@@ -905,8 +964,15 @@ class DeepMind:
         """
         records = self._build_reflection_records_for_turn(event, response)
 
+        # 本轮回复的权威来源是 response：快照生成于主模型回复之前，
+        # 从 records 倒查 assistant 只会取到上一轮的旧回复。
+        response_text = (
+            getattr(response, "completion_text", str(response))
+            if response is not None
+            else ""
+        )
         latest_user_text = ""
-        latest_assistant_text = ""
+        latest_assistant_text = str(response_text).strip()
         for msg in reversed(records):
             role = str(msg.get("role", "")).strip()
             content = self.prompt_builder.extract_text_from_content(msg.get("content", ""))

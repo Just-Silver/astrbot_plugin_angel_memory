@@ -308,6 +308,27 @@ class MemorySqlManager:
         """根据短 ID 获取完整 ID，未注册则返回空字符串。"""
         return self._short_to_full.get(str(short_id or "").strip(), "")
 
+    # --- 反思缓冲持久化 ---
+
+    def _find_memory_id_by_judgment_sync(
+        self, judgment: str, memory_scope: str
+    ) -> str:
+        """按规范化论断在同 scope 内精确查重，返回命中的记忆 ID。"""
+        text = str(judgment or "").strip()
+        if not text:
+            return ""
+        scope = self._normalize_scope(memory_scope)
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id FROM memory_records
+                WHERE judgment = ? AND memory_scope = ?
+                LIMIT 1
+                """,
+                (text, scope),
+            ).fetchone()
+        return str(row["id"]) if row else ""
+
     def build_id_mapping(self, full_ids: List[str]) -> Dict[str, str]:
         """为一组完整 ID 构建 {短ID: 完整ID} 映射（用于反思等场景）。"""
         mapping: Dict[str, str] = {}
@@ -1978,6 +1999,14 @@ class MemorySqlManager:
                 continue
 
             if action == "create":
+                existing = await asyncio.to_thread(
+                    self._find_memory_id_by_judgment_sync, judgment, resolved_scope
+                )
+                if existing:
+                    self.logger.debug(
+                        f"跳过重复记忆: judgment={judgment[:30]} scope={resolved_scope}"
+                    )
+                    continue
                 memory = await self.remember(
                     memory_type=str(memory_data.get("type") or "knowledge"),
                     judgment=judgment,

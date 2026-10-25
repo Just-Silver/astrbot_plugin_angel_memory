@@ -285,6 +285,18 @@ LLM响应 → DeepMind.async_analyze_and_update_memory()
 - 开发与自测在功能分支完成；**验证通过后才合并回 `master`**，未验证不得直接推主分支。
 - 分支合并后及时删除，避免长期分叉。
 
+### 完整维护流程（修复与新增一律照此执行，不得跳步）
+1. **开分支**：从最新 `master` 切出 `fix/…`、`feat/…` 或 `refactor/…`。禁止在 `master` 上直接改。
+2. **开发**：在分支上完成改动，同步递增 `metadata.yaml` 的 `version`。
+3. **本地门禁**：推送前必须本地跑通，两条都过才允许推送：
+   - `ruff check .`
+   - `ruff format --check .`（需要改格式就用 `ruff format .` 后复核）
+4. **推送分支**：CI 会自动跑同一组检查（静态检查 + 编译 + 单测 + 前端类型检查与构建），**CI 绿了才算这一轮完成**；CI 红着不许打 tag。
+5. **发 beta**：在分支上打预发布 tag（如 `v1.6.17-beta.1`）并推送，CD 自动以 Pre-release 发布。
+6. **实测**：把 beta 装进实际环境验证，**以用户反馈为准**，不拿自测替代。
+7. **发正式版**：验证通过后合并分支到 `master`，把 `metadata.yaml` 的版本改成正式版（去掉 `-beta.N`），在 `master` 上打正式 tag（如 `v1.6.17`）并推送。
+8. **清理**：删除已合并的功能分支（本地与远端）。
+
 ### CI/CD 与发布规范
 发布**必须**走「先 beta、后正式」两段式，tag 是版本历史的记录点：
 
@@ -301,8 +313,10 @@ LLM响应 → DeepMind.async_analyze_and_update_memory()
 
 ### 代码风格
 - 门禁命令：`ruff check .` 与 `ruff format --check .`，规则配置见 `ruff.toml`（对齐 AstrBot 主项目，未做规则裁剪）。
-- 提交前本地跑一遍上述两条，CI 会以同样命令拦截。
+- **推送前必须本地跑通上述两条**；CI 用同样命令拦截，本地不过就别推。
+- 修风格问题要真改代码，**不得**靠缩小 `select`、加 `ignore`、`# noqa` 或 `continue-on-error` 绕过门禁。
 - `ruff.toml` 只排除 `*.md`（文档里的代码块属文档内容，不能被格式化改写）与测试目录的 `E402`（测试需先注入 `sys.path` 与桩模块再导入，属结构必然）。
+- 测试依赖统一放 `requirements-ci.txt`，本地与 CI 用同一份，避免"本地过、CI 挂"。
 
 ### 提交信息规范
 - 采用约定式提交（Conventional Commits），推荐格式：`type(scope): 简要中文描述`。

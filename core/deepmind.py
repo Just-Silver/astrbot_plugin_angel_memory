@@ -333,7 +333,7 @@ class DeepMind:
 
         session_id = self._get_session_id(event)
 
-        # 1. 从 event.angelheart_context 中获取对话历史（仅保留未处理消息）
+        # 1. 从 event.angelheart_context 中获取对话历史（仅保留当前连续块）
         chat_records: List[Dict[str, Any]] = []
         unprocessed_chat_records: List[Dict[str, Any]] = []
         secretary_decision = {}
@@ -343,11 +343,11 @@ class DeepMind:
                 chat_records = angelheart_data.get("chat_records", []) or []
                 if not isinstance(chat_records, list):
                     chat_records = []
-                unprocessed_chat_records = [
-                    msg
-                    for msg in chat_records
-                    if isinstance(msg, dict) and msg.get("is_processed", True) is False
-                ]
+                if chat_records:
+                    unprocessed_chat_records, _ = self._split_chat_snapshot(
+                        chat_records,
+                        angelheart_data.get("historical_count"),
+                    )
                 secretary_decision = angelheart_data.get("secretary_decision", {}) or {}
             except (json.JSONDecodeError, KeyError, TypeError):
                 self.logger.error(f"为会话 {session_id} 解析 angelheart_context 失败")
@@ -776,6 +776,7 @@ class DeepMind:
         # 获取会话ID
         session_id = self._get_session_id(event)
         await self._ensure_reflection_tick_task()
+        await self._restore_reflection_state(session_id)
         await self._buffer_reflection_turn(event, response, session_id)
         await self._trigger_reflection_if_needed(session_id, reason="count")
 
@@ -815,11 +816,81 @@ class DeepMind:
             for sid in session_ids:
                 await self._trigger_reflection_if_needed(sid, reason="idle")
 
+    def _split_chat_snapshot(
+        self,
+        chat_records: List[Dict[str, Any]],
+        historical_count: Any = None,
+    ) -> tuple[List[Dict[str, Any]], str]:
+        """
+        按生产方声明的边界把快照切成 (当前连续块, 来源标记)。
+
+        快照是“当前连续块 + 历史前缀”的全量内容，不是增量；本轮增量在 event 与
+        response 里，这里只负责取出供画像与 query 使用的当前批次。
+
+        三级降级：
+        1. 有 historical_count（天使之心 2.1+ 显式声明）：直接按声明切分。
+        2. 有 is_processed（旧契约）：按旧语义筛选，保持既有行为。
+        3. 两者都没有（天使之心 2.x）：退回最后一条 assistant 之后切分。
+        """
+        records = [msg for msg in chat_records if isinstance(msg, dict)]
+        if not records:
+            return [], "empty"
+
+        # 1. 显式声明优先：生产方知道自己的压缩策略，消费方不该猜。
+        if historical_count is not None:
+            try:
+                boundary = int(historical_count)
+            except (TypeError, ValueError):
+                boundary = -1
+            if 0 <= boundary <= len(records):
+                batch = records[boundary:]
+                if batch:
+                    return batch, "explicit"
+                self.logger.warning(
+                    f"[反思调度] 快照边界切出空批次 historical_count={boundary} "
+                    f"total={len(records)}，退回角色兜底"
+                )
+            else:
+                self.logger.warning(
+                    f"[反思调度] 快照边界非法 historical_count={historical_count} "
+                    f"total={len(records)}，退回角色兜底"
+                )
+
+        # 2. 旧契约：有 is_processed 就按旧语义走，不改既有行为。
+        has_processed_flag = any("is_processed" in msg for msg in records)
+        if has_processed_flag:
+            processed = [
+                msg for msg in records if bool(msg.get("is_processed", False))
+            ]
+            latest_user_unprocessed = None
+            for msg in reversed(records):
+                if (
+                    str(msg.get("role", "")).strip() == "user"
+                    and msg.get("is_processed", True) is False
+                ):
+                    latest_user_unprocessed = msg
+                    break
+            combined = list(processed)
+            if latest_user_unprocessed is not None:
+                combined.append(latest_user_unprocessed)
+            return combined, "legacy_flag"
+
+        # 3. 无任何标记：当前连续块 = 最后一条 assistant 之后。
+        #    快照生成于主模型回复之前，所以这块正是本轮用户消息及其上下文。
+        for index in range(len(records) - 1, -1, -1):
+            if str(records[index].get("role", "")).strip() == "assistant":
+                batch = records[index + 1 :]
+                if batch:
+                    return batch, "role_fallback"
+                break
+        # 切空（快照以 assistant 结尾）或整块无 assistant：保留整块，宁可多吃不可丢弃。
+        return records, "role_fallback_full"
+
     def _build_reflection_records_for_turn(self, event: AstrMessageEvent, response) -> List[Dict[str, Any]]:
         """
         生成“本轮新增”的反思聊天记录。
         分支：
-        - AngelHeart：取已处理历史 + 最新一条未处理用户消息。
+        - AngelHeart：按快照边界取当前连续块。
         - 原生：仅当前轮 用户 -> 助理。
         """
         now_ts = time.time()
@@ -835,33 +906,22 @@ class DeepMind:
                 angelheart_data = json.loads(event.angelheart_context)
                 chat_records = angelheart_data.get("chat_records", []) or []
                 if isinstance(chat_records, list) and chat_records:
-                    processed = [
-                        msg
-                        for msg in chat_records
-                        if isinstance(msg, dict) and bool(msg.get("is_processed", False))
-                    ]
-                    latest_user_unprocessed = None
-                    for msg in reversed(chat_records):
-                        if (
-                            isinstance(msg, dict)
-                            and str(msg.get("role", "")).strip() == "user"
-                            and msg.get("is_processed", True) is False
-                        ):
-                            latest_user_unprocessed = msg
-                            break
-                    combined = list(processed)
-                    if latest_user_unprocessed is not None:
-                        combined.append(latest_user_unprocessed)
-                    self.logger.debug(
-                        f"[反思调度] 使用天使之心聊天记录: processed={len(processed)} "
-                        f"+ latest_unprocessed_user={1 if latest_user_unprocessed else 0}"
+                    batch, source = self._split_chat_snapshot(
+                        chat_records,
+                        angelheart_data.get("historical_count"),
                     )
-                    return self._dedupe_and_sort_chat_records(
-                        combined,
-                        source="天使之心聊天记录",
-                    )
+                    if batch:
+                        self.logger.debug(
+                            f"[反思调度] 使用天使之心聊天记录: "
+                            f"来源={source} batch={len(batch)}/total={len(chat_records)}"
+                        )
+                        return self._dedupe_and_sort_chat_records(
+                            batch,
+                            source="天使之心聊天记录",
+                        )
             except (json.JSONDecodeError, TypeError, KeyError) as e:
                 self.logger.warning(f"反思聊天记录解析失败，降级到原生分支: {e}")
+
 
         # 分支2：原生消息（每轮仅用户输入）
         user_text = self._extract_message_text(event) or ""
@@ -905,8 +965,15 @@ class DeepMind:
         """
         records = self._build_reflection_records_for_turn(event, response)
 
+        # 本轮回复的权威来源是 response：快照生成于主模型回复之前，
+        # 从 records 倒查 assistant 只会取到上一轮的旧回复。
+        response_text = (
+            getattr(response, "completion_text", str(response))
+            if response is not None
+            else ""
+        )
         latest_user_text = ""
-        latest_assistant_text = ""
+        latest_assistant_text = str(response_text).strip()
         for msg in reversed(records):
             role = str(msg.get("role", "")).strip()
             content = self.prompt_builder.extract_text_from_content(msg.get("content", ""))
@@ -1012,6 +1079,96 @@ class DeepMind:
         normalized.sort(key=lambda x: float(x.get("timestamp", 0.0) or 0.0))
         return normalized
 
+    def _reflection_sql_manager(self):
+        """取存储层；不可用时返回 None（Simple 模式或初始化未完成）。"""
+        try:
+            return self.plugin_context.get_component("memory_sql_manager")
+        except Exception:
+            return None
+
+    async def _persist_reflection_state(
+        self, session_id: str, snapshot: Dict[str, Any]
+    ) -> None:
+        manager = self._reflection_sql_manager()
+        if manager is None:
+            return
+        latest_input = snapshot.get("latest_input")
+        serialized_input = None
+        if latest_input is not None:
+            if isinstance(latest_input, dict):
+                serialized_input = latest_input
+            elif hasattr(latest_input, "__dict__"):
+                serialized_input = dict(vars(latest_input))
+        try:
+            await asyncio.to_thread(
+                manager.save_reflection_buffer,
+                session_id=session_id,
+                pending_turns=int(snapshot.get("pending_turns", 0)),
+                last_activity_at=float(snapshot.get("last_activity_at", 0.0)),
+                records=list(snapshot.get("records", [])),
+                latest_input=serialized_input,
+            )
+        except Exception as e:
+            # 落盘失败只降级为内存态，不能阻断反思主流程。
+            self.logger.warning(
+                f"[反思调度] 缓冲落盘失败，降级为内存态 session={session_id} 错误={e}"
+            )
+
+    async def _restore_reflection_state(self, session_id: str) -> None:
+        """首次访问某会话时从存储层恢复未消费的缓冲。"""
+        manager = self._reflection_sql_manager()
+        if manager is None:
+            return
+        try:
+            restored = await asyncio.to_thread(
+                manager.load_reflection_buffer, session_id
+            )
+        except Exception as e:
+            self.logger.warning(
+                f"[反思调度] 缓冲恢复失败 session={session_id} 错误={e}"
+            )
+            return
+        if not restored:
+            return
+        pending_turns = int(restored.get("pending_turns", 0) or 0)
+        if pending_turns <= 0:
+            return
+        latest_input_data = restored.get("latest_input")
+        latest_input = None
+        if isinstance(latest_input_data, dict):
+            try:
+                latest_input = ReflectionInput(**latest_input_data)
+            except TypeError:
+                latest_input = None
+        async with self._reflection_state_lock:
+            state = self._reflection_states.setdefault(
+                session_id,
+                {
+                    "pending_turns": 0,
+                    "last_activity_at": 0.0,
+                    "records": [],
+                    "latest_input": None,
+                    "processing": False,
+                },
+            )
+            # 内存态更新时不回退已有的进度。
+            if int(state.get("pending_turns", 0)) >= pending_turns:
+                return
+            state["pending_turns"] = pending_turns
+            state["last_activity_at"] = float(
+                restored.get("last_activity_at", 0.0) or 0.0
+            )
+            state["records"] = self._dedupe_and_sort_chat_records(
+                list(restored.get("records", [])),
+                source="反思缓冲恢复",
+            )
+            if latest_input is not None:
+                state["latest_input"] = latest_input
+        self.logger.info(
+            f"[反思调度] 已恢复缓冲 session={session_id} "
+            f"pending_turns={pending_turns} records={len(restored.get('records', []))}"
+        )
+
     async def _buffer_reflection_turn(self, event: AstrMessageEvent, response, session_id: str) -> None:
         reflection_input = await self._build_reflection_input(event, response, session_id)
         turn_records = list(reflection_input.chat_records)
@@ -1039,10 +1196,19 @@ class DeepMind:
             state["pending_turns"] = int(state.get("pending_turns", 0)) + 1
             state["last_activity_at"] = now
             state["latest_input"] = reflection_input
+            snapshot = {
+                "pending_turns": state["pending_turns"],
+                "last_activity_at": state["last_activity_at"],
+                "records": list(state["records"]),
+                "latest_input": reflection_input,
+            }
             self.logger.info(
                 f"[反思调度] 入缓冲 session={session_id} "
                 f"pending_turns={state['pending_turns']} records={len(state['records'])}"
             )
+
+        # 锁外落盘：避免持锁做磁盘 IO，阻塞其它会话的调度。
+        await self._persist_reflection_state(session_id, snapshot)
 
     async def _trigger_reflection_if_needed(self, session_id: str, reason: str) -> bool:
         now = time.time()
@@ -1127,7 +1293,32 @@ class DeepMind:
                 )
             else:
                 self.logger.info(f"[反思调度] 完成 session={session_id}")
+            snapshot = {
+                "pending_turns": state["pending_turns"],
+                "last_activity_at": state.get("last_activity_at", 0.0),
+                "records": list(state.get("records", [])),
+                "latest_input": state.get("latest_input"),
+            }
+
+        await self._sync_reflection_state(session_id, snapshot, consumed=bool(success))
         return bool(success)
+
+    async def _sync_reflection_state(
+        self, session_id: str, snapshot: Dict[str, Any], consumed: bool
+    ) -> None:
+        """把消费结果同步到存储层：成功即清空，失败则回滚落盘。"""
+        manager = self._reflection_sql_manager()
+        if manager is None:
+            return
+        try:
+            if consumed:
+                await asyncio.to_thread(manager.clear_reflection_buffer, session_id)
+            else:
+                await self._persist_reflection_state(session_id, snapshot)
+        except Exception as e:
+            self.logger.warning(
+                f"[反思调度] 缓冲状态同步失败 session={session_id} 错误={e}"
+            )
 
     async def _execute_async_analysis_task(
         self,

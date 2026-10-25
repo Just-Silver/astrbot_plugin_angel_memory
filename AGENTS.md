@@ -138,6 +138,7 @@ LLM响应 → DeepMind.async_analyze_and_update_memory()
 - **Simple模式**：FTS5（jieba 预分词）检索 + rank归一融合 + 阈值过滤
 - **重排契约**：上游返回 `RerankResult`（`relevance_score`），接入见 [`docs/重排接入与分数契约.md`](docs/重排接入与分数契约.md)
 - **上下文契约**：天使之心注入的 `angelheart_context` 字段与切分语义见 [`docs/天使之心上下文契约.md`](docs/天使之心上下文契约.md)
+- **本次修复验收**：反思契约修复的部署核对与验收步骤见 [`docs/反思契约修复验收流程.md`](docs/反思契约修复验收流程.md)
 
 ### 嵌入层
 - **本地模型**：SentenceTransformers（BAAI/bge-small-zh-v1.5）

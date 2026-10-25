@@ -404,9 +404,7 @@ class NotesAPI:
 
     @staticmethod
     def _sanitize_title(title: str) -> str:
-        cleaned = "".join(
-            char for char in str(title or "") if char.isprintable() or char in " \t"
-        )
+        cleaned = "".join(char for char in str(title or "") if char.isprintable() or char in " \t")
         safe = re.sub(r'[<>:"/\\|?*]', "_", cleaned.replace("\t", " "))
         safe = re.sub(r"\s+", " ", safe).strip(". ")
         return safe[:80].strip(". ") or "untitled"
@@ -539,9 +537,7 @@ class NotesAPI:
             finally:
                 conn.close()
 
-        logger.info(
-            f"[笔记上传] 完成 path={relative_path} encoding_chars={len(body)} 切片={chunks}"
-        )
+        logger.info(f"[笔记上传] 完成 path={relative_path} encoding_chars={len(body)} 切片={chunks}")
         return jsonify(
             {
                 "saved": {

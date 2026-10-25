@@ -134,9 +134,7 @@ async def post_json(app, url, payload):
 class TestDeleteNotes:
     @pytest.mark.asyncio
     async def test_delete_removes_file_and_index(self, workspace):
-        status, body = await post_json(
-            workspace["app"], "/notes/delete", {"source_ids": ["note_file_11"]}
-        )
+        status, body = await post_json(workspace["app"], "/notes/delete", {"source_ids": ["note_file_11"]})
 
         assert status == 200
         assert body["deleted"] == ["note_file_11"]
@@ -184,9 +182,7 @@ class TestDeleteNotes:
         conn.commit()
         conn.close()
 
-        status, body = await post_json(
-            workspace["app"], "/notes/delete", {"source_ids": ["note_file_99"]}
-        )
+        status, body = await post_json(workspace["app"], "/notes/delete", {"source_ids": ["note_file_99"]})
 
         assert status == 200
         assert body["deleted"] == []
@@ -196,9 +192,7 @@ class TestDeleteNotes:
     async def test_index_cleanup_failure_is_reported_not_hidden(self, workspace):
         workspace["note_service"].remove_result = False
 
-        status, body = await post_json(
-            workspace["app"], "/notes/delete", {"source_ids": ["note_file_11"]}
-        )
+        status, body = await post_json(workspace["app"], "/notes/delete", {"source_ids": ["note_file_11"]})
 
         assert status == 200
         assert body["deleted"] == []
@@ -301,7 +295,12 @@ class TestUploadConfirm:
         status, body = await post_json(
             workspace["app"],
             "/notes/upload/confirm",
-            {"filename": "接口文档.md", "title": "接口文档", "original_title": "接口文档", "content": "# 接口文档\n新版本\n"},
+            {
+                "filename": "接口文档.md",
+                "title": "接口文档",
+                "original_title": "接口文档",
+                "content": "# 接口文档\n新版本\n",
+            },
         )
 
         assert status == 200
@@ -359,9 +358,7 @@ class TestUploadConfirm:
     @pytest.mark.asyncio
     async def test_over_size_upload_is_rejected(self, workspace):
         big = base64.b64encode(b"a" * (2 * 1024 * 1024 + 1)).decode()
-        status, _body = await post_json(
-            workspace["app"], "/notes/upload", {"filename": "big.md", "base64": big}
-        )
+        status, _body = await post_json(workspace["app"], "/notes/upload", {"filename": "big.md", "base64": big})
         assert status == 400
 
 
@@ -374,8 +371,6 @@ class TestRecallNoteParams:
 
     @pytest.mark.asyncio
     async def test_null_offset_defaults_to_first_line(self, workspace):
-        status, body = await post_json(
-            workspace["app"], "/notes/recall", {"note_short_id": 1, "offset": None}
-        )
+        status, body = await post_json(workspace["app"], "/notes/recall", {"note_short_id": 1, "offset": None})
         assert status == 200
         assert body["actual_start_line"] == 1

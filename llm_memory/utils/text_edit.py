@@ -9,18 +9,37 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
 
 CRLF = "\r\n"
 
 _SINGLE_CHAR_MAP = {
-    "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
-    "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"',
-    "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-",
-    "\u2014": "-", "\u2015": "-", "\u2212": "-",
-    "\u00a0": " ", "\u202f": " ", "\u205f": " ", "\u3000": " ",
-    "\u2002": " ", "\u2003": " ", "\u2004": " ", "\u2005": " ",
-    "\u2006": " ", "\u2007": " ", "\u2008": " ", "\u2009": " ",
+    "\u2018": "'",
+    "\u2019": "'",
+    "\u201a": "'",
+    "\u201b": "'",
+    "\u201c": '"',
+    "\u201d": '"',
+    "\u201e": '"',
+    "\u201f": '"',
+    "\u2010": "-",
+    "\u2011": "-",
+    "\u2012": "-",
+    "\u2013": "-",
+    "\u2014": "-",
+    "\u2015": "-",
+    "\u2212": "-",
+    "\u00a0": " ",
+    "\u202f": " ",
+    "\u205f": " ",
+    "\u3000": " ",
+    "\u2002": " ",
+    "\u2003": " ",
+    "\u2004": " ",
+    "\u2005": " ",
+    "\u2006": " ",
+    "\u2007": " ",
+    "\u2008": " ",
+    "\u2009": " ",
     "\u200a": " ",
 }
 
@@ -55,8 +74,8 @@ def is_pure_crlf(text: str) -> bool:
     return total > 0 and text.count(CRLF) == total
 
 
-def _find_occurrences(content: str, search: str) -> List[Match]:
-    matches: List[Match] = []
+def _find_occurrences(content: str, search: str) -> list[Match]:
+    matches: list[Match] = []
     offset = 0
     while True:
         found = content.find(search, offset)
@@ -66,8 +85,8 @@ def _find_occurrences(content: str, search: str) -> List[Match]:
         offset = found + len(search)
 
 
-def _split_lines(content: str) -> List[_Line]:
-    lines: List[_Line] = []
+def _split_lines(content: str) -> list[_Line]:
+    lines: list[_Line] = []
     position = 0
     length = len(content)
     while position < length:
@@ -84,7 +103,7 @@ def _normalized_line(text: str) -> str:
     return normalize_for_match(text.rstrip())
 
 
-def _find_line_occurrences(content: str, search: str) -> List[Match]:
+def _find_line_occurrences(content: str, search: str) -> list[Match]:
     trailing_newline = search.endswith("\n")
     expected = search.split("\n")
     if trailing_newline:
@@ -97,9 +116,9 @@ def _find_line_occurrences(content: str, search: str) -> List[Match]:
         return []
 
     expected_keys = [_normalized_line(item) for item in expected]
-    matches: List[Match] = []
+    matches: list[Match] = []
     for index in range(len(lines) - len(expected) + 1):
-        window = lines[index:index + len(expected)]
+        window = lines[index : index + len(expected)]
         if any(_normalized_line(line.text) != key for line, key in zip(window, expected_keys)):
             continue
         last = window[-1]
@@ -113,7 +132,7 @@ def _find_line_occurrences(content: str, search: str) -> List[Match]:
     return matches
 
 
-def _locate(view: str, search: str) -> List[Match]:
+def _locate(view: str, search: str) -> list[Match]:
     matches = _find_occurrences(view, search)
     if matches:
         return matches
@@ -143,9 +162,7 @@ def apply_edit(
         EditError: 参数无效、找不到、多处匹配或内容未变化。
     """
     if not old_string:
-        raise EditError(
-            "old_string 不能为空。新建笔记请用 angel_note_create，整篇覆盖请用 angel_note_write。"
-        )
+        raise EditError("old_string 不能为空。新建笔记请用 angel_note_create，整篇覆盖请用 angel_note_write。")
     if old_string == new_string:
         raise EditError("没有变化：old_string 与 new_string 相同。")
 
@@ -156,19 +173,16 @@ def apply_edit(
 
     matches = _locate(view, search)
     if not matches:
-        raise EditError(
-            "在笔记中找不到 old_string。它必须与原文完全一致，包括缩进和空行。"
-        )
+        raise EditError("在笔记中找不到 old_string。它必须与原文完全一致，包括缩进和空行。")
     if len(matches) > 1 and not replace_all:
         raise EditError(
-            f"找到 {len(matches)} 处匹配，但默认只允许一处。"
-            "请补充更多上下文使其唯一，或设 replace_all=true。"
+            f"找到 {len(matches)} 处匹配，但默认只允许一处。请补充更多上下文使其唯一，或设 replace_all=true。"
         )
 
     selected = matches if replace_all else matches[:1]
     edited = view
     for match in reversed(selected):
-        edited = edited[: match.start] + replacement + edited[match.end:]
+        edited = edited[: match.start] + replacement + edited[match.end :]
 
     if edited == view:
         raise EditError("没有变化：这次编辑没有改动文件。")

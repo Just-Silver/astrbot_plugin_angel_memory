@@ -49,8 +49,7 @@ class NoteWriteTool(FunctionTool):
         content: str,
     ) -> str:
         self.logger.debug(
-            f"{self.name} - LLM 调用: note_short_id={note_short_id} "
-            f"content_len={len(str(content or ''))}"
+            f"{self.name} - LLM 调用: note_short_id={note_short_id} content_len={len(str(content or ''))}"
         )
 
         if not hasattr(event, "plugin_context") or event.plugin_context is None:

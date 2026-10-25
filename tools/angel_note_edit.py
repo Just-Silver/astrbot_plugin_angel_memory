@@ -32,7 +32,7 @@ class NoteEditTool(FunctionTool):
         "且不要包含 angel_note_read 返回的元信息头（note_short_id / source_file_path / total_lines 那几行）。"
         "匹配失败时会依次忽略弯引号、破折号、全角空格，再忽略每行行尾空白的差异重试；仍失败则报错且不写盘。"
         "你看到的笔记内容通常只是切片，不是全文。编辑前请先调用 angel_note_read 读取完整正文，再从正文中摘取 old_string。"
-        "笔记标题是正文中第一处以 \"# \" 开头的行（代码块里的 # 不算），改标题就替换那一行。"
+        '笔记标题是正文中第一处以 "# " 开头的行（代码块里的 # 不算），改标题就替换那一行。'
         "本工具不能新建笔记（用 angel_note_create），也不能整篇覆盖（用 angel_note_write）。"
     )
     parameters: dict = field(
@@ -46,10 +46,7 @@ class NoteEditTool(FunctionTool):
                 },
                 "old_string": {
                     "type": "string",
-                    "description": (
-                        "要被替换的原文。必须与笔记正文逐字一致，"
-                        "不含 angel_note_read 的元信息头。"
-                    ),
+                    "description": ("要被替换的原文。必须与笔记正文逐字一致，不含 angel_note_read 的元信息头。"),
                 },
                 "new_string": {
                     "type": "string",
@@ -57,9 +54,7 @@ class NoteEditTool(FunctionTool):
                 },
                 "replace_all": {
                     "type": "boolean",
-                    "description": (
-                        "是否替换所有出现位置。默认 false 时 old_string 必须只出现一次。"
-                    ),
+                    "description": ("是否替换所有出现位置。默认 false 时 old_string 必须只出现一次。"),
                     "default": False,
                 },
             },
@@ -111,7 +106,5 @@ class NoteEditTool(FunctionTool):
         ]
         if result.get("title_changed") and result.get("title"):
             lines.append(f"title: {result['title']}")
-        lines.append(
-            f"已更新正文并重建索引（切片 {result['chunks']} 段）。"
-        )
+        lines.append(f"已更新正文并重建索引（切片 {result['chunks']} 段）。")
         return "\n".join(lines)

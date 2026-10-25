@@ -6,14 +6,12 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
-
 from .text_edit import is_pure_crlf
 
 _FENCE_MARKERS = ("```", "~~~")
 
 
-def find_h1_line_index(lines: List[str]) -> Optional[int]:
+def find_h1_line_index(lines: list[str]) -> int | None:
     """返回第一处一级标题所在行号；找不到返回 None。"""
     in_fence = False
     fence_marker = ""

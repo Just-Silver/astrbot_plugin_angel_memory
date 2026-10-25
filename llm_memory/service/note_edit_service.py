@@ -11,7 +11,7 @@ import os
 import threading
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 try:
     from astrbot.api import logger
@@ -25,7 +25,7 @@ from ..utils.text_edit import EditError, apply_edit
 
 SUPPORTED_SUFFIXES = {".md", ".txt"}
 
-_locks: Dict[str, threading.Lock] = {}
+_locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 
 
@@ -43,7 +43,7 @@ def _lock_for(abs_path: str) -> threading.Lock:
 
 
 def _read_preserving_newlines(path: Path) -> str:
-    with open(path, "r", encoding="utf-8-sig", newline="") as handle:
+    with open(path, encoding="utf-8-sig", newline="") as handle:
         return handle.read()
 
 
@@ -68,7 +68,7 @@ class NoteEditService:
 
     # ---------- 定位 ----------
 
-    async def resolve(self, note_short_id: int) -> Dict[str, Any]:
+    async def resolve(self, note_short_id: int) -> dict[str, Any]:
         """按短 ID 取笔记记录，并校验文件位于 raw/ 内。"""
         try:
             short_id = int(note_short_id)
@@ -111,12 +111,10 @@ class NoteEditService:
         old_string: str,
         new_string: str,
         replace_all: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         # 参数错误优先于定位错误报出，避免模型顺着「笔记不存在」改方向
         if not str(old_string or ""):
-            raise EditError(
-                "old_string 不能为空。新建笔记请用 angel_note_create，整篇覆盖请用 angel_note_write。"
-            )
+            raise EditError("old_string 不能为空。新建笔记请用 angel_note_create，整篇覆盖请用 angel_note_write。")
         if old_string == new_string:
             raise EditError("没有变化：old_string 与 new_string 相同。")
 
@@ -137,7 +135,7 @@ class NoteEditService:
             "chunks": chunks,
         }
 
-    async def overwrite(self, note_short_id: int, content: str) -> Dict[str, Any]:
+    async def overwrite(self, note_short_id: int, content: str) -> dict[str, Any]:
         if not str(content or "").strip():
             raise NoteEditError("content 不能为空。")
         target = await self.resolve(note_short_id)
@@ -153,7 +151,7 @@ class NoteEditService:
 
     def _edit_sync(
         self,
-        target: Dict[str, Any],
+        target: dict[str, Any],
         old_string: str,
         new_string: str,
         replace_all: bool,
@@ -169,7 +167,7 @@ class NoteEditService:
             previous_title = extract_h1(source)
         return edited, count, chunks, previous_title
 
-    def _overwrite_sync(self, target: Dict[str, Any], content: str):
+    def _overwrite_sync(self, target: dict[str, Any], content: str):
         abs_path = Path(target["abs_path"])
         with _lock_for(str(abs_path)):
             before = abs_path.stat()
@@ -186,20 +184,16 @@ class NoteEditService:
         if current != expected_mtime_ns:
             raise NoteEditError("文件已被其他写入改动，请重新读取后再编辑。")
 
-    def _resync(self, target: Dict[str, Any]) -> int:
+    def _resync(self, target: dict[str, Any]) -> int:
         note_service = self.plugin_context.get_component("note_service")
         if note_service is None:
             self.logger.warning("笔记服务不可用，跳过索引同步")
             return 0
         try:
-            chunks, _timings = note_service.parse_and_store_file_sync(
-                target["abs_path"], target["relative_path"]
-            )
+            chunks, _timings = note_service.parse_and_store_file_sync(target["abs_path"], target["relative_path"])
             return int(chunks)
         except Exception as exc:
-            self.logger.error(
-                f"笔记索引同步失败 path={target['relative_path']}: {exc}", exc_info=True
-            )
+            self.logger.error(f"笔记索引同步失败 path={target['relative_path']}: {exc}", exc_info=True)
             raise NoteEditError(f"内容已写入，但索引更新失败：{exc}")
 
 

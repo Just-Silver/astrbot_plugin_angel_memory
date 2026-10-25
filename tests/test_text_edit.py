@@ -53,7 +53,7 @@ class TestExactMatch:
 
 class TestNormalizedMatch:
     def test_curly_quotes_match_straight_quotes(self):
-        source = '他说“明天上线”\n'
+        source = "他说“明天上线”\n"
         edited, count = apply_edit(source, '他说"明天上线"', '他说"下周上线"')
         assert count == 1
         assert edited == '他说"下周上线"\n'

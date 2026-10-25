@@ -5,6 +5,12 @@ All notable changes to this plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.6.17] - 2026-10-25
+
+### Added
+- `feat(note)`: 新增笔记局部编辑与整篇覆盖工具，可在对话中直接改写已有笔记的指定段落，或整篇重写。
+- `feat(webui)`: 笔记页面支持删除、正文预览与上传，删除会同步清理检索索引。
+
 ## [Unreleased]
 
 ### Added

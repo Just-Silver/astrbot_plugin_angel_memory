@@ -183,3 +183,6 @@ webui/dist/
 
 # GitHub Actions 工作流属于仓库本体，不能随上面一条一起被忽略
 !.github/
+
+# VS Code 工作区文件由 IDE 生成，各人本地不同
+*.code-workspace

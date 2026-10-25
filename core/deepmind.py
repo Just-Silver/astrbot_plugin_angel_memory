@@ -776,7 +776,6 @@ class DeepMind:
         # 获取会话ID
         session_id = self._get_session_id(event)
         await self._ensure_reflection_tick_task()
-        await self._restore_reflection_state(session_id)
         await self._buffer_reflection_turn(event, response, session_id)
         await self._trigger_reflection_if_needed(session_id, reason="count")
 
@@ -1079,96 +1078,6 @@ class DeepMind:
         normalized.sort(key=lambda x: float(x.get("timestamp", 0.0) or 0.0))
         return normalized
 
-    def _reflection_sql_manager(self):
-        """取存储层；不可用时返回 None（Simple 模式或初始化未完成）。"""
-        try:
-            return self.plugin_context.get_component("memory_sql_manager")
-        except Exception:
-            return None
-
-    async def _persist_reflection_state(
-        self, session_id: str, snapshot: Dict[str, Any]
-    ) -> None:
-        manager = self._reflection_sql_manager()
-        if manager is None:
-            return
-        latest_input = snapshot.get("latest_input")
-        serialized_input = None
-        if latest_input is not None:
-            if isinstance(latest_input, dict):
-                serialized_input = latest_input
-            elif hasattr(latest_input, "__dict__"):
-                serialized_input = dict(vars(latest_input))
-        try:
-            await asyncio.to_thread(
-                manager.save_reflection_buffer,
-                session_id=session_id,
-                pending_turns=int(snapshot.get("pending_turns", 0)),
-                last_activity_at=float(snapshot.get("last_activity_at", 0.0)),
-                records=list(snapshot.get("records", [])),
-                latest_input=serialized_input,
-            )
-        except Exception as e:
-            # 落盘失败只降级为内存态，不能阻断反思主流程。
-            self.logger.warning(
-                f"[反思调度] 缓冲落盘失败，降级为内存态 session={session_id} 错误={e}"
-            )
-
-    async def _restore_reflection_state(self, session_id: str) -> None:
-        """首次访问某会话时从存储层恢复未消费的缓冲。"""
-        manager = self._reflection_sql_manager()
-        if manager is None:
-            return
-        try:
-            restored = await asyncio.to_thread(
-                manager.load_reflection_buffer, session_id
-            )
-        except Exception as e:
-            self.logger.warning(
-                f"[反思调度] 缓冲恢复失败 session={session_id} 错误={e}"
-            )
-            return
-        if not restored:
-            return
-        pending_turns = int(restored.get("pending_turns", 0) or 0)
-        if pending_turns <= 0:
-            return
-        latest_input_data = restored.get("latest_input")
-        latest_input = None
-        if isinstance(latest_input_data, dict):
-            try:
-                latest_input = ReflectionInput(**latest_input_data)
-            except TypeError:
-                latest_input = None
-        async with self._reflection_state_lock:
-            state = self._reflection_states.setdefault(
-                session_id,
-                {
-                    "pending_turns": 0,
-                    "last_activity_at": 0.0,
-                    "records": [],
-                    "latest_input": None,
-                    "processing": False,
-                },
-            )
-            # 内存态更新时不回退已有的进度。
-            if int(state.get("pending_turns", 0)) >= pending_turns:
-                return
-            state["pending_turns"] = pending_turns
-            state["last_activity_at"] = float(
-                restored.get("last_activity_at", 0.0) or 0.0
-            )
-            state["records"] = self._dedupe_and_sort_chat_records(
-                list(restored.get("records", [])),
-                source="反思缓冲恢复",
-            )
-            if latest_input is not None:
-                state["latest_input"] = latest_input
-        self.logger.info(
-            f"[反思调度] 已恢复缓冲 session={session_id} "
-            f"pending_turns={pending_turns} records={len(restored.get('records', []))}"
-        )
-
     async def _buffer_reflection_turn(self, event: AstrMessageEvent, response, session_id: str) -> None:
         reflection_input = await self._build_reflection_input(event, response, session_id)
         turn_records = list(reflection_input.chat_records)
@@ -1196,19 +1105,10 @@ class DeepMind:
             state["pending_turns"] = int(state.get("pending_turns", 0)) + 1
             state["last_activity_at"] = now
             state["latest_input"] = reflection_input
-            snapshot = {
-                "pending_turns": state["pending_turns"],
-                "last_activity_at": state["last_activity_at"],
-                "records": list(state["records"]),
-                "latest_input": reflection_input,
-            }
             self.logger.info(
                 f"[反思调度] 入缓冲 session={session_id} "
                 f"pending_turns={state['pending_turns']} records={len(state['records'])}"
             )
-
-        # 锁外落盘：避免持锁做磁盘 IO，阻塞其它会话的调度。
-        await self._persist_reflection_state(session_id, snapshot)
 
     async def _trigger_reflection_if_needed(self, session_id: str, reason: str) -> bool:
         now = time.time()
@@ -1293,32 +1193,7 @@ class DeepMind:
                 )
             else:
                 self.logger.info(f"[反思调度] 完成 session={session_id}")
-            snapshot = {
-                "pending_turns": state["pending_turns"],
-                "last_activity_at": state.get("last_activity_at", 0.0),
-                "records": list(state.get("records", [])),
-                "latest_input": state.get("latest_input"),
-            }
-
-        await self._sync_reflection_state(session_id, snapshot, consumed=bool(success))
         return bool(success)
-
-    async def _sync_reflection_state(
-        self, session_id: str, snapshot: Dict[str, Any], consumed: bool
-    ) -> None:
-        """把消费结果同步到存储层：成功即清空，失败则回滚落盘。"""
-        manager = self._reflection_sql_manager()
-        if manager is None:
-            return
-        try:
-            if consumed:
-                await asyncio.to_thread(manager.clear_reflection_buffer, session_id)
-            else:
-                await self._persist_reflection_state(session_id, snapshot)
-        except Exception as e:
-            self.logger.warning(
-                f"[反思调度] 缓冲状态同步失败 session={session_id} 错误={e}"
-            )
 
     async def _execute_async_analysis_task(
         self,

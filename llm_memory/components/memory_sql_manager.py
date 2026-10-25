@@ -174,15 +174,6 @@ class MemorySqlManager:
                     id INTEGER PRIMARY KEY CHECK (id = 1),
                     next_id INTEGER NOT NULL
                 );
-
-                CREATE TABLE IF NOT EXISTS reflection_buffer (
-                    session_id TEXT PRIMARY KEY,
-                    pending_turns INTEGER NOT NULL DEFAULT 0,
-                    last_activity_at REAL NOT NULL DEFAULT 0,
-                    records TEXT NOT NULL DEFAULT '[]',
-                    latest_input TEXT,
-                    updated_at REAL NOT NULL DEFAULT 0
-                );
                 """
             )
             # 兼容迁移：若旧表 memory_tags 存在，则迁移到 global_tags
@@ -337,92 +328,6 @@ class MemorySqlManager:
                 (text, scope),
             ).fetchone()
         return str(row["id"]) if row else ""
-
-    def save_reflection_buffer(
-        self,
-        session_id: str,
-        pending_turns: int,
-        last_activity_at: float,
-        records: list,
-        latest_input=None,
-    ) -> None:
-        """落盘反思缓冲，避免重启丢失未消费的轮次。"""
-        sid = str(session_id or "").strip()
-        if not sid:
-            return
-        payload = json.dumps(records or [], ensure_ascii=False, default=str)
-        latest = (
-            json.dumps(latest_input, ensure_ascii=False, default=str)
-            if latest_input is not None
-            else None
-        )
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO reflection_buffer(
-                    session_id, pending_turns, last_activity_at,
-                    records, latest_input, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(session_id) DO UPDATE SET
-                    pending_turns=excluded.pending_turns,
-                    last_activity_at=excluded.last_activity_at,
-                    records=excluded.records,
-                    latest_input=excluded.latest_input,
-                    updated_at=excluded.updated_at
-                """,
-                (
-                    sid,
-                    int(pending_turns or 0),
-                    float(last_activity_at or 0.0),
-                    payload,
-                    latest,
-                    time.time(),
-                ),
-            )
-            conn.commit()
-
-    def load_reflection_buffer(self, session_id: str) -> Optional[dict]:
-        """读回反思缓冲；无记录返回 None。"""
-        sid = str(session_id or "").strip()
-        if not sid:
-            return None
-        with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT pending_turns, last_activity_at, records, latest_input
-                FROM reflection_buffer WHERE session_id = ?
-                """,
-                (sid,),
-            ).fetchone()
-        if row is None:
-            return None
-        try:
-            records = json.loads(row["records"] or "[]")
-        except (json.JSONDecodeError, TypeError):
-            records = []
-        latest_input = None
-        if row["latest_input"]:
-            try:
-                latest_input = json.loads(row["latest_input"])
-            except (json.JSONDecodeError, TypeError):
-                latest_input = None
-        return {
-            "pending_turns": int(row["pending_turns"] or 0),
-            "last_activity_at": float(row["last_activity_at"] or 0.0),
-            "records": records if isinstance(records, list) else [],
-            "latest_input": latest_input,
-        }
-
-    def clear_reflection_buffer(self, session_id: str) -> None:
-        """反思消费完成后清空缓冲。"""
-        sid = str(session_id or "").strip()
-        if not sid:
-            return
-        with self._connect() as conn:
-            conn.execute(
-                "DELETE FROM reflection_buffer WHERE session_id = ?", (sid,)
-            )
-            conn.commit()
 
     def build_id_mapping(self, full_ids: List[str]) -> Dict[str, str]:
         """为一组完整 ID 构建 {短ID: 完整ID} 映射（用于反思等场景）。"""

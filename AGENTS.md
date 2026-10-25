@@ -293,6 +293,8 @@ LLM响应 → DeepMind.async_analyze_and_update_memory()
 
 - 预发布 tag（带 `-` 后缀）**不得**打在 `master` 上；正式 tag **必须**在 `master` 上。两条都由 `release.yml` 校验并拒绝。
 - 发布前 `tag` 版本 == `metadata.yaml` 的 `version` == `CHANGELOG.md` 对应小节，三者不一致即失败。
+- **beta 期间 `metadata.yaml` 写预发布版本**（如 `1.6.17-beta.1`），合并到 `master` 发正式版时改成 `1.6.17`。这样 AstrBot 按 SemVer 判定 `1.6.17-beta.1 < 1.6.17`，能正确提示升级；若 beta 与正式版都写 `1.6.17`，验证阶段补的修复就推不下去。
+- `CHANGELOG.md` 的版本小节只写到基础版本（`## [1.6.17]`），beta 与正式版共用同一篇说明。
 - CD 以 CI 为前置条件：`release.yml` 通过 `workflow_call` 复用 `ci.yml` 的 `verify` job，跑的是同一组检查，失败则不发版。
 - tag 推送**不会**再次触发 CI（`ci.yml` 的 `push` 只监听分支）；不要在 CD 里直接 `pytest`，避免维护两份检查定义。
 - 发版前先把 `CHANGELOG.md` 的 `Unreleased` 整理成 `## [x.y.z] - YYYY-MM-DD` 小节。
